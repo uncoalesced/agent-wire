@@ -60,6 +60,25 @@ class Ledger:
         ).fetchone()
         return row[0] if row else None
 
+    def get_route(self, domain: str, ttl_s: int = ROUTE_TTL_S) -> dict | None:
+        row = self._db.execute(
+            "SELECT winning_stage, cf_clearance, user_agent FROM domain_routes"
+            " WHERE domain = ? AND updated_at > ?",
+            (domain, int(time.time()) - ttl_s),
+        ).fetchone()
+        if row is None:
+            return None
+        return {"stage": row[0], "cf_clearance": row[1], "user_agent": row[2]}
+
+    def routes(self) -> list[tuple[str, int]]:
+        return self._db.execute(
+            "SELECT domain, winning_stage FROM domain_routes ORDER BY updated_at DESC"
+        ).fetchall()
+
+    def clear_route(self, domain: str) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM domain_routes WHERE domain = ?", (domain,))
+
     def set_winning_stage(
         self,
         domain: str,
