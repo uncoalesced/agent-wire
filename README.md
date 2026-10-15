@@ -5,7 +5,7 @@
 Give your AI agent a fast, privacy-shielded wire into the web and 27+ platforms — Reddit, X, GitHub, YouTube, Hacker News, StackOverflow, arXiv, Bilibili and more — with token-compressed output, no API fees, and everything running locally.
 
 > [!WARNING]
-> **Early development.** agent-wire is being built in phases. Nothing described below is usable yet — the [roadmap](#roadmap) shows what has landed. This README describes the target design.
+> **Early development.** agent-wire is being built in phases. Nothing described below is usable yet. This README describes the target design.
 
 ---
 
@@ -133,15 +133,6 @@ Resolved in order:
 4. `~/.config/agent-wire/` (Linux/macOS) or `%APPDATA%\agent-wire\` (Windows)
 
 A `.wire/.gitignore` is written on first run so the cache and cookie vault are never committed.
-
-## Roadmap
-
-- [ ] **Phase 1** — scaffolding, config / `WIRE_HOME`, models, bounded ring buffer + SQLite ledger
-- [ ] **Phase 2** — outbound + inbound firewalls, BM25 / anchor slicing, DAM formatter
-- [ ] **Phase 3** — HTTP pool, challenge detector, 4-stage waterfall, cookie vault, rate limiter
-- [ ] **Phase 4** — router + Tier 1 channels
-- [ ] **Phase 5** — MCP server, `wire` CLI, client installer, plugin manifests
-- [ ] **Phase 6** — Tier 2 + Tier 3 channels, optional local transcription
 
 ## Development
 
