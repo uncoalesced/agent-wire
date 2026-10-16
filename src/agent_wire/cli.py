@@ -131,9 +131,9 @@ def install(
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(2) from e
     for r in results:
-        typer.echo(f"{'[dry-run] ' if dry_run else ''}{r.client}:")
+        typer.echo(f"{r.client}:")
         for f in r.files:
-            typer.echo(f"  wrote {f}")
+            typer.echo(f"  {'would write' if dry_run else 'wrote'} {f}")
         for note in r.notes:
             typer.echo(f"  note: {note}")
 

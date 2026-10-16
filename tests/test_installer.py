@@ -134,6 +134,28 @@ def test_auto_defaults_to_claude_code(dirs):
     assert [r.client for r in install("auto", dirs, dry_run=True)] == ["claude-code"]
 
 
+@pytest.mark.parametrize(
+    "direct_url, expected",
+    [
+        ({"url": "file:///E:/agent-wire", "dir_info": {"editable": True}}, str(Path("E:/agent-wire"))),
+        ({"url": "https://github.com/uncoalesced/agent-wire", "vcs_info": {"vcs": "git", "commit_id": "abc"}},
+         "git+https://github.com/uncoalesced/agent-wire"),
+        ({"url": "https://github.com/u/a", "vcs_info": {"vcs": "git", "requested_revision": "v1"}},
+         "git+https://github.com/u/a@v1"),
+        ({"url": "https://files.pythonhosted.org/agent_wire.whl", "archive_info": {}}, None),
+    ],
+)  # fmt: skip
+def test_install_source_mirrors_how_it_was_installed(monkeypatch, direct_url, expected):
+    class Dist:
+        def read_text(self, name):
+            return json.dumps(direct_url)
+
+    monkeypatch.setattr(ci.metadata, "distribution", lambda name: Dist())
+    assert ci.install_source() == expected
+    entry = ci.server_entry("standard", Path("/w"))
+    assert entry["args"] == (["--from", expected] if expected else []) + ["agent-wire", "serve"]
+
+
 def test_unknown_client(dirs):
     with pytest.raises(ValueError):
         install("notepad", dirs)

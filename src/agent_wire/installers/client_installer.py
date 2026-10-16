@@ -55,24 +55,31 @@ def _body(md: str) -> str:
     return re.sub(r"\A---\n.*?\n---\n+", "", md, flags=re.DOTALL)
 
 
-def local_source() -> Path | None:
-    """The source checkout when agent-wire was installed from a local path (it isn't on PyPI yet)."""
+def install_source() -> str | None:
+    """Where uvx should fetch agent-wire from, mirroring how it was installed (it isn't on PyPI yet).
+
+    A local checkout -> its path; a git install -> `git+<url>[@rev]`; a registry install -> None.
+    """
     try:
         raw = metadata.distribution("agent-wire").read_text("direct_url.json")
     except metadata.PackageNotFoundError:
         return None
-    url = json.loads(raw).get("url", "") if raw else ""
+    info = json.loads(raw) if raw else {}
+    url = info.get("url", "")
+    if "vcs_info" in info:
+        rev = info["vcs_info"].get("requested_revision")
+        return f"git+{url}" + (f"@{rev}" if rev else "")
     if not url.startswith("file:"):
         return None
     path = unquote(urlsplit(url).path)
     if re.match(r"^/[A-Za-z]:", path):  # file:///E:/agent-wire on Windows
         path = path[1:]
-    return Path(path)
+    return str(Path(path))
 
 
 def server_entry(profile: str, wire_home: Path) -> dict:
-    src = local_source()
-    args = (["--from", str(src)] if src else []) + ["agent-wire", "serve"]
+    src = install_source()
+    args = (["--from", src] if src else []) + ["agent-wire", "serve"]
     if profile == "local":
         args += ["--profile", "local"]
     return {"command": "uvx", "args": args, "env": {"WIRE_HOME": str(wire_home)}}
