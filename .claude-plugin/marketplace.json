@@ -1,0 +1,13 @@
+{
+  "name": "agent-wire",
+  "owner": {
+    "name": "uncoalesced"
+  },
+  "plugins": [
+    {
+      "name": "agent-wire",
+      "source": "./",
+      "description": "Live web and 27-platform access for agents: token-compressed, privacy-firewalled, injection-shielded."
+    }
+  ]
+}

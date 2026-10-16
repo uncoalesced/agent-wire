@@ -1,0 +1,6 @@
+# OpenAI Codex CLI: append to ~/.codex/config.toml (or let `wire install --client codex` do it).
+# Codex Go plan / rate-limit saver: add "--profile", "local" to args.
+[mcp_servers.agent_wire]
+command = "uvx"
+args = ["agent-wire", "serve"]
+env = { WIRE_HOME = "~/.codex/.wire" }

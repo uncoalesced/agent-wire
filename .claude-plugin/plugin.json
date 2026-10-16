@@ -1,0 +1,12 @@
+{
+  "name": "agent-wire",
+  "version": "0.1.0",
+  "description": "Live web and 27-platform access for agents: token-compressed, privacy-firewalled, injection-shielded. Auto-triggers on links and live questions.",
+  "author": {
+    "name": "uncoalesced"
+  },
+  "homepage": "https://github.com/uncoalesced/agent-wire",
+  "repository": "https://github.com/uncoalesced/agent-wire",
+  "license": "MIT",
+  "keywords": ["web", "search", "reddit", "github", "youtube", "mcp", "scraping", "research"]
+}

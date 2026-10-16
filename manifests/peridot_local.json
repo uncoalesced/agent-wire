@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agent_wire": {
+      "command": "uvx",
+      "args": ["agent-wire", "serve", "--profile", "local"],
+      "env": {
+        "WIRE_HOME": ".peridot/.wire"
+      }
+    }
+  },
+  "profile": {
+    "name": "local",
+    "note": "8 GB VRAM saver: tool descriptions under 80 tokens total, wire_read/wire_search capped at 800 tokens, 1 auto-expanded search hit."
+  }
+}

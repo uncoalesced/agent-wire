@@ -89,6 +89,7 @@ class HttpPool:
         timeout: float | None = None,
         method: str = "GET",
         json_body: dict | None = None,
+        data: dict | None = None,
     ) -> Fetched:
         check_request(method, url, authenticated=bool(cookies))
         hdrs = dict(headers or {})
@@ -98,6 +99,7 @@ class HttpPool:
             "headers": hdrs,
             "params": params,
             "json": json_body,
+            "data": data,
             "timeout": timeout or self.timeout,
         }
         if not cookies:

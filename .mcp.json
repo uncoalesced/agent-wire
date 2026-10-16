@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agent_wire": {
+      "command": "uvx",
+      "args": ["--from", "${CLAUDE_PLUGIN_ROOT:-.}", "agent-wire", "serve"],
+      "env": {
+        "WIRE_HOME": "${CLAUDE_PLUGIN_ROOT:-.}/.wire"
+      }
+    }
+  }
+}

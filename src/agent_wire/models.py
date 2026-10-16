@@ -31,6 +31,10 @@ class WireDocument(_Strict):
     body: str = ""
     comments: list[WireComment] = []
     metadata: dict[str, str | int | float | bool | None] = {}
+    # Pipeline telemetry, never rendered into the document text.
+    stage: int = 1
+    auth: str = "none"
+    raw_bytes: int = 0
 
 
 class WireSearchHit(_Strict):

@@ -24,13 +24,30 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+stealth = [
+    "playwright>=1.48.0",
+]
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.17.1",
 ]
 
+[project.scripts]
+wire = "agent_wire.cli:app"
+agent-wire = "agent_wire.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/uncoalesced/agent-wire"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_wire"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skills/agent-wire/SKILL.md" = "agent_wire/assets/SKILL.md"
+"agents/wire-worker.md" = "agent_wire/assets/wire-worker.md"
+"manifests/cursor_rule.mdc" = "agent_wire/assets/cursor_rule.mdc"
+"manifests/windsurf_rules.md" = "agent_wire/assets/windsurf_rules.md"
+"manifests/hermes_skill.md" = "agent_wire/assets/hermes_skill.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
