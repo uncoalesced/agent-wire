@@ -57,7 +57,7 @@ wire feed markets "AAPL, RELIANCE.NS, crypto:bitcoin"
 | `wire_read(urls, query, section, include_comments, max_tokens, force)` | Reads up to 10 URLs at once. `query` keeps the parts that answer it; `#L10-L50` and `#heading` anchors are honoured. Reading the same page again returns only what changed. |
 | `wire_search(query, platforms, limit, sort, auto_expand_top, max_tokens)` | Searches the web (DuckDuckGo and Brave, plus SearXNG or Exa if configured) or specific platforms, then reads the top hits in the same call. |
 | `wire_feed(platform, target, sort, limit)` | A subreddit, an `@user` timeline, GitHub trending, an arXiv category, a stock watchlist, an RSS feed. |
-| `wire_me(platform, target, limit)` | Your own posts, likes, bookmarks, notifications or stats, using your local login. |
+| `wire_me(platform, target, limit)` | Your own posts, likes, bookmarks, notifications or stats, using a session you saved with `wire auth login`. |
 | `wire_status(refresh)` | Channels, saved logins and which fetch stage each site needed. Answers in a few milliseconds. |
 
 Every result is wrapped like this, so the model knows where the text came from and that it's quoted material:
