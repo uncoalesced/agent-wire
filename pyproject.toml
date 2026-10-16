@@ -27,6 +27,9 @@ dependencies = [
 stealth = [
     "playwright>=1.48.0",
 ]
+local-whisper = [
+    "faster-whisper>=1.1.0",
+]
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.17.1",

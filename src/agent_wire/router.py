@@ -3,6 +3,8 @@
 import re
 from urllib.parse import urlsplit
 
+from agent_wire.channels import MODULES
+
 DOMAINS = {
     # tier 1
     "reddit.com": "reddit", "redd.it": "reddit",
@@ -61,6 +63,9 @@ PLATFORMS = {
     "douyin": "douyin_tiktok", "tiktok": "douyin_tiktok", "xiaoyuzhou": "xiaoyuzhou",
     "xueqiu": "xueqiu", "boss": "boss_zhipin", "zhipin": "boss_zhipin",
 }  # fmt: skip
+
+# Every channel's own name is also a valid platform name.
+PLATFORMS.update({name: name for name in MODULES if name != "web"})
 
 # `platforms=["all"]` fans out to the channels with fast, key-free search.
 ALL_PLATFORMS = ("web", "reddit", "hn", "github", "youtube", "stackoverflow", "wikipedia")

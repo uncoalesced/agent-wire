@@ -35,8 +35,8 @@ def parse_ddg_html(html: str) -> list[WireSearchHit]:
         if not href.startswith("http"):
             continue
         snip = res.css_first(".result__snippet")
-        hits.append(WireSearchHit(url=href, title=a.text(strip=True),
-                                  snippet=snip.text(strip=True) if snip else "", source="ddg"))  # fmt: skip
+        hits.append(WireSearchHit(url=href, title=a.text(separator=" ", strip=True),
+                                  snippet=snip.text(separator=" ", strip=True) if snip else "", source="ddg"))  # fmt: skip
     return hits
 
 
@@ -50,9 +50,11 @@ def parse_ddg_lite(html: str) -> list[WireSearchHit]:
         if "uddg=" in href:
             href = parse_qs(urlsplit(href).query).get("uddg", [href])[0]
         if href.startswith("http"):
-            snip = snippets[i].text(strip=True) if i < len(snippets) else ""
+            snip = snippets[i].text(separator=" ", strip=True) if i < len(snippets) else ""
             hits.append(
-                WireSearchHit(url=href, title=a.text(strip=True), snippet=snip, source="ddg")
+                WireSearchHit(
+                    url=href, title=a.text(separator=" ", strip=True), snippet=snip, source="ddg"
+                )
             )
     return hits
 
@@ -68,8 +70,8 @@ def parse_brave(html: str) -> list[WireSearchHit]:
         hits.append(
             WireSearchHit(
                 url=a.attributes["href"],
-                title=(title or a).text(strip=True),
-                snippet=desc.text(strip=True) if desc else "",
+                title=(title or a).text(separator=" ", strip=True),
+                snippet=desc.text(separator=" ", strip=True) if desc else "",
                 source="brave",
             )
         )

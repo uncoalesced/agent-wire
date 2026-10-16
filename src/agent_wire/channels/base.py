@@ -1,6 +1,7 @@
 """Channel interface, shared context and helpers used by every platform module."""
 
 import html as htmllib
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -180,3 +181,55 @@ def _md(node, links: bool) -> str:
 
 def html_text(html: str) -> str:
     return " ".join(LexborHTMLParser(clean_html(html)).text(separator=" ").split()) if html else ""
+
+
+# ---- structured data embedded in pages ----------------------------------------------------------
+_JSON = json.JSONDecoder()
+
+
+def meta_tags(html: str) -> dict[str, str]:
+    """og:/twitter:/name= meta tags, lower-cased keys."""
+    out = {}
+    for m in LexborHTMLParser(html).css("meta[property], meta[name]"):
+        key = (m.attributes.get("property") or m.attributes.get("name") or "").lower()
+        if key and (content := m.attributes.get("content")):
+            out.setdefault(key, htmllib.unescape(content))
+    return out
+
+
+def json_ld(html: str) -> list[dict]:
+    items = []
+    for node in LexborHTMLParser(html).css('script[type="application/ld+json"]'):
+        try:
+            data = json.loads(node.text())
+        except ValueError:
+            continue
+        for d in data if isinstance(data, list) else [data]:
+            if isinstance(d, dict):
+                items += d["@graph"] if isinstance(d.get("@graph"), list) else [d]
+    return items
+
+
+def script_json(html: str, selector: str):
+    """JSON inside a <script> matched by CSS selector (e.g. script#__NEXT_DATA__)."""
+    node = LexborHTMLParser(html).css_first(selector)
+    if not node:
+        return None
+    try:
+        return json.loads(node.text())
+    except ValueError:
+        return None
+
+
+def assigned_json(html: str, var: str, *, js_undefined: bool = False):
+    """The object literal assigned to `var` in inline JS (`window.__INITIAL_STATE__ = {...}`)."""
+    m = re.search(rf"{re.escape(var)}\s*=\s*", html)
+    if not m:
+        return None
+    text = html[m.end() :]
+    if js_undefined:  # JS-only literal some sites leave in their state dumps
+        text = re.sub(r"([:\[,]\s*)undefined(?=\s*[,}\]])", r"\1null", text)
+    try:
+        return _JSON.raw_decode(text)[0]
+    except ValueError:
+        return None

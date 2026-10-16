@@ -10,7 +10,7 @@ from curl_cffi.requests import AsyncSession
 from agent_wire import __version__
 from agent_wire.firewall.outbound_privacy import check_request
 
-DEFAULT_TIMEOUT = 20
+DEFAULT_TIMEOUT = 12  # a stalled stage should fail fast and let the waterfall escalate
 USER_AGENT = f"agent-wire/{__version__} (+https://github.com/uncoalesced/agent-wire)"
 MAX_COOKIE_REDIRECTS = 5
 _TWO_LEVEL_TLDS = frozenset(
@@ -90,6 +90,7 @@ class HttpPool:
         method: str = "GET",
         json_body: dict | None = None,
         data: dict | None = None,
+        multipart=None,
     ) -> Fetched:
         check_request(method, url, authenticated=bool(cookies))
         hdrs = dict(headers or {})
@@ -100,6 +101,7 @@ class HttpPool:
             "params": params,
             "json": json_body,
             "data": data,
+            "multipart": multipart,
             "timeout": timeout or self.timeout,
         }
         if not cookies:

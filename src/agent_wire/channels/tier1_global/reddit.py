@@ -1,4 +1,4 @@
-"""Reddit: .json threads/listings with old.reddit mirror and PullPush failover."""
+"""Reddit: .json threads/listings (official app OAuth when configured, old.reddit mirror)."""
 
 import base64
 import os
@@ -11,8 +11,11 @@ from agent_wire.firewall.outbound_privacy import parse_json
 from agent_wire.models import WireComment, WireSearchHit
 
 WWW = "https://www.reddit.com"
-PULLPUSH = "https://api.pullpush.io/reddit/search"
 PRUNE_DEPTH, PRUNE_SCORE = 3, 2
+BLOCKED_HINT = (
+    "Reddit blocks anonymous access from this network. Set REDDIT_CLIENT_ID (a free 'installed app' "
+    "at reddit.com/prefs/apps) or run `wire auth login reddit.com`."
+)
 
 
 def parse_comments(children: list, depth: int = 0) -> list[WireComment]:
@@ -54,29 +57,6 @@ def parse_thread(data: list) -> dict:
             "upvote_ratio": post.get("upvote_ratio"),
         },
     }
-
-
-def parse_pullpush(post: dict, comments: list[dict]) -> dict:
-    by_parent: dict[str, list[dict]] = {}
-    for c in comments:
-        by_parent.setdefault(c.get("parent_id", ""), []).append(c)
-
-    def build(parent: str, depth: int) -> list[WireComment]:
-        return [
-            WireComment(id=c["id"], body=c.get("body") or "", author_handle=c.get("author"),
-                        score=c.get("score") or 0, depth=depth, timestamp=ts(c.get("created_utc")),
-                        is_op=c.get("author") == post.get("author"),
-                        replies=build(f"t1_{c['id']}", depth + 1))
-            for c in by_parent.get(parent, [])
-        ]  # fmt: skip
-
-    return {
-        "title": post.get("title"), "author_handle": post.get("author"),
-        "timestamp": ts(post.get("created_utc")), "score": post.get("score"),
-        "body": post.get("selftext") or post.get("url") or "",
-        "comments": build(f"t3_{post['id']}", 0),
-        "metadata": {"subreddit": f"r/{post.get('subreddit')}", "source": "pullpush archive"},
-    }  # fmt: skip
 
 
 def listing_items(data: dict) -> list[dict]:
@@ -150,7 +130,12 @@ class RedditChannel(Channel):
                 pass  # fall through to the public endpoints
         url = f"{WWW}{path}.json?raw_json=1{sep}{query}"
         mirror = f"https://old.reddit.com{path}.json?raw_json=1{sep}{query}"
-        return await self.fetch_json(url, mirrors=[mirror], **kw)
+        try:
+            return await self.fetch_json(url, mirrors=[mirror], **kw)
+        except WireFetchError as e:
+            raise WireFetchError(f"{e} {BLOCKED_HINT}") from e
+        except ValueError as e:  # an HTML block page where JSON should be
+            raise WireFetchError(f"{url}: {BLOCKED_HINT}") from e
 
     async def read(self, url, *, query=None, section=None, include_comments=True):
         path = _path(url)
@@ -159,22 +144,11 @@ class RedditChannel(Channel):
             f = await self.fetch(url, archive=False)
             path, segs = _path(f.url), [s for s in _path(f.url).split("/") if s]
         if "comments" in segs:
-            post_id = segs[segs.index("comments") + 1]
-            try:
-                data, f = await self._json(path, "limit=200&sort=top")
-                return self.doc(f, url, **parse_thread(data))
-            except WireFetchError:
-                return await self._pullpush(url, post_id)
+            data, f = await self._json(path, "limit=200&sort=top")
+            return self.doc(f, url, **parse_thread(data))
         if segs[:1] in (["r"], ["user"], ["u"]):
             return await self.feed("/".join(segs), limit=25)
         return await self.ctx.channel("web").read(url, query=query, section=section)
-
-    async def _pullpush(self, url, post_id):
-        posts, f = await self.fetch_json(f"{PULLPUSH}/submission/?ids={post_id}")
-        if not posts.get("data"):
-            raise WireFetchError(f"{url}: reddit blocked and not in the PullPush archive")
-        comments, _ = await self.fetch_json(f"{PULLPUSH}/comment/?link_id={post_id}&size=100")
-        return self.doc(f, url, **parse_pullpush(posts["data"][0], comments.get("data", [])))
 
     async def search(self, query, *, limit=5, sort="relevance"):
         data, _ = await self._json("/search", f"q={quote(query)}&sort={sort}&limit={limit}")

@@ -16,6 +16,7 @@ from agent_wire.channels.tier1_global import (
     x_twitter,
     youtube,
 )
+from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.media.subtitle_cleaner import parse_captions, parse_chapters, to_paragraphs
 from agent_wire.router import route_platform, route_url
 
@@ -334,17 +335,32 @@ def test_reddit_read_uses_json_and_old_reddit_mirror(make_ctx, run):
     assert doc.score == 120 and doc.comments[0].body == "Great chip"
 
 
-def test_reddit_pullpush_fallback(make_ctx, run):
-    ctx = make_ctx({
-        "pullpush.io/reddit/search/submission": {"data": [{"id": "abc", "title": "T", "author": "op",
-                                                           "selftext": "body", "subreddit": "x"}]},
-        "pullpush.io/reddit/search/comment": {"data": [
-            {"id": "c1", "parent_id": "t3_abc", "body": "top", "author": "op", "score": 4},
-            {"id": "c2", "parent_id": "t1_c1", "body": "reply", "author": "z", "score": 1}]},
-    })  # fmt: skip
-    doc = run(ctx.channel("reddit").read("https://www.reddit.com/r/x/comments/abc/t/"))
-    assert doc.metadata["source"] == "pullpush archive"
-    assert doc.comments[0].is_op and doc.comments[0].replies[0].body == "reply"
+def test_reddit_blocked_gives_actionable_error(make_ctx, run):
+    ctx = make_ctx(
+        {"reddit.com": fetched(b"<html>blocked</html>", status=403)}
+    )  # route returns HTML
+    with pytest.raises(WireFetchError, match="REDDIT_CLIENT_ID"):
+        run(ctx.channel("reddit").read("https://www.reddit.com/r/x/comments/abc/t/"))
+    assert not any(
+        "pullpush" in u for u, _ in ctx.waterfall.calls
+    )  # its operator refuses agent traffic
+
+
+def test_reddit_app_oauth_route(make_ctx, run, monkeypatch):
+    monkeypatch.setenv("REDDIT_CLIENT_ID", "cid")
+    token = fetched({"access_token": "tok", "expires_in": 3600})
+
+    class Pool:
+        async def get(self, url, **kw):
+            assert kw["data"]["grant_type"].endswith("installed_client")
+            return token
+
+    ctx = make_ctx({"oauth.reddit.com/r/LocalLLaMA/comments/abc": THREAD})
+    ctx.pool = Pool()
+    doc = run(ctx.channel("reddit").read("https://www.reddit.com/r/LocalLLaMA/comments/abc/"))
+    url, kw = ctx.waterfall.calls[0]
+    assert url.startswith("https://oauth.reddit.com/r/LocalLLaMA/comments/abc?raw_json=1")
+    assert kw["headers"]["Authorization"] == "Bearer tok" and doc.score == 120
 
 
 def test_reddit_feed_listing(make_ctx, run):
@@ -354,6 +370,47 @@ def test_reddit_feed_listing(make_ctx, run):
     ctx = make_ctx({"reddit.com/r/x/top": listing})
     doc = run(ctx.channel("reddit").feed("r/x", sort="top"))
     assert "1. [Post](https://www.reddit.com/r/x/comments/1/p/) · +9 · 2 comments" in doc.body
+
+
+def test_youtube_channel_feed_uses_canonical_id(make_ctx, run):
+    page = ('"channelId":"UCrecommended0000000000x" '
+            '<link rel="canonical" href="https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv">')  # fmt: skip
+    feed = fetched(
+        b"<feed xmlns='http://www.w3.org/2005/Atom'><title>Real</title></feed>",
+        ctype="application/atom+xml",
+    )
+    ctx = make_ctx({"videos.xml": feed, "youtube.com/@": fetched(page)})
+    run(ctx.channel("youtube").feed("@real"))
+    assert ctx.waterfall.calls[-1][0].endswith("channel_id=UCabcdefghijklmnopqrstuv")
+
+
+def test_youtube_videos_tab_fallback(make_ctx, run):
+    state = {"metadata": {"channelMetadataRenderer": {"title": "3Blue1Brown"}}, "items": [{"lockupViewModel": {
+        "contentId": "abcdefghijk", "metadata": {"lockupMetadataViewModel": {"title": {"content": "Vectors"},
+        "metadata": {"contentMetadataViewModel": {"metadataRows": [{"metadataParts": [
+            {"text": {"content": "1.2M views"}}, {"text": {"content": "3 days ago"}}]}]}}}}}}]}  # fmt: skip
+    page = f"<script>var ytInitialData = {orjson.dumps(state).decode()};</script>"
+    ctx = make_ctx(
+        {"/channel/UCYO_jab_esuFRV4b17AJtAw/videos": fetched(page)}
+    )  # no RSS route -> error
+    doc = run(ctx.channel("youtube").feed("UCYO_jab_esuFRV4b17AJtAw"))
+    assert doc.title == "3Blue1Brown · videos"
+    assert (
+        "1. [Vectors](https://www.youtube.com/watch?v=abcdefghijk) · 1.2M views · 3 days ago"
+        in doc.body
+    )
+
+
+def test_every_channel_name_is_a_platform():
+    for name in ("publishing", "meta_social", "douyin_tiktok", "boss_zhipin", "archive", "hubs"):
+        assert route_platform(name) == name
+
+
+def test_ddg_snippet_keeps_word_spacing():
+    html = ('<div class="result"><a class="result__a" href="https://x.org/">Free <b>threading</b></a>'
+            '<a class="result__snippet">Python <b>support</b> for free</a></div>')  # fmt: skip
+    hit = search.parse_ddg_html(html)[0]
+    assert hit.title == "Free threading" and hit.snippet == "Python support for free"
 
 
 def test_reddit_me_notifications_refused(make_ctx, run):

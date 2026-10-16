@@ -3,7 +3,7 @@
 import re
 from urllib.parse import parse_qs, urlsplit
 
-from agent_wire.channels.base import Channel, WireUnsupported, compact_count
+from agent_wire.channels.base import Channel, WireUnsupported, assigned_json, compact_count, listing
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.media.subtitle_cleaner import parse_captions, parse_chapters, to_paragraphs
 from agent_wire.models import WireComment, WireSearchHit
@@ -72,6 +72,21 @@ def parse_search(data: dict, limit: int) -> list[WireSearchHit]:
         if len(hits) >= limit:
             break
     return hits
+
+
+def parse_lockups(data: dict, limit: int) -> list[dict]:
+    """Channel Videos tab (2025+ `lockupViewModel` layout) -> listing items."""
+    items = []
+    for lv in find_all(data, "lockupViewModel"):
+        meta = (lv.get("metadata") or {}).get("lockupMetadataViewModel") or {}
+        parts = [p.get("text", {}).get("content") for rows in find_all(meta, "metadataRows")
+                 for row in rows for p in row.get("metadataParts") or []]  # fmt: skip
+        if lv.get("contentId"):
+            items.append({"title": (meta.get("title") or {}).get("content"),
+                          "url": f"https://www.youtube.com/watch?v={lv['contentId']}", "meta": parts})  # fmt: skip
+        if len(items) >= limit:
+            break
+    return items
 
 
 def parse_comment_mutations(data: dict) -> list[WireComment]:
@@ -177,12 +192,23 @@ class YouTubeChannel(Channel):
                 else f"https://www.youtube.com/{t if t.startswith('@') else '@' + t}"
             )
             f = await self.fetch(page_url, archive=False)
-            m = re.search(r'"(?:channelId|externalId)":"(UC[\w-]{22})"', f.text)
+            # canonical / externalId name the page's own channel; a bare "channelId" can be a recommendation
+            m = (re.search(r'<link rel="canonical" href="https://www\.youtube\.com/channel/(UC[\w-]{22})"', f.text)
+                 or re.search(r'"externalId":"(UC[\w-]{22})"', f.text))  # fmt: skip
             if not m:
                 raise WireUnsupported(f"couldn't resolve YouTube channel for {target!r}")
             channel_id = m[1]
         rss = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-        return await self.ctx.channel("rss").feed(rss, limit=limit)
+        try:
+            return await self.ctx.channel("rss").feed(rss, limit=limit)
+        except WireFetchError:  # the RSS endpoint 500s intermittently; read the Videos tab instead
+            url = f"https://www.youtube.com/channel/{channel_id}/videos"
+            f = await self.fetch(url, archive=False)
+            data = assigned_json(f.text, "var ytInitialData") or {}
+            name = next(find_all(data, "channelMetadataRenderer"), {}).get("title") or channel_id
+            return self.doc(
+                f, url, title=f"{name} · videos", body=listing(parse_lockups(data, limit))
+            )
 
 
 CHANNEL = YouTubeChannel
