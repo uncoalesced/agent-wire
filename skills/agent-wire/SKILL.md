@@ -21,4 +21,4 @@ You have direct live internet and platform access through the `agent_wire` MCP s
 
 4. **Searching:** Call `wire_search(query="...", platforms=[...])`. Note that `wire_search` automatically expands the full text of the top 2 results, so you rarely need a follow-up `wire_read` call.
 
-5. **User's Own Account ("my latest post", "my likes", "my notifications"):** Immediately call `wire_me(platform="...", target="...")` which safely uses the user's local browser session.
+5. **User's Own Account ("my latest post", "my likes", "my notifications"):** Immediately call `wire_me(platform="...", target="...")` which uses the session the user saved with `wire auth login <site>`. If it reports no saved session, tell the user to run that command; never ask for passwords or cookies.

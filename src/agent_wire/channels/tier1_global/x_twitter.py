@@ -232,7 +232,7 @@ class XChannel(Channel):
         ]  # fmt: skip
 
     def _vault_only(self) -> dict | None:
-        """Explicit `wire auth login x.com` session only; public reads never pull browser cookies."""
+        """Saved `wire auth login x.com` session, if any (the only cookies agent-wire ever uses)."""
         vault = self.ctx.vault
         jar = vault.get("x.com") if vault else {}
         return jar if jar.get("auth_token") and jar.get("ct0") else None

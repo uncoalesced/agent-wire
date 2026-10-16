@@ -241,7 +241,8 @@ class Wire:
             f"agent-wire {__version__} · profile {self.profile_name} · home {self.home}",
             f"channels: {len(MODULES)} ({', '.join(MODULES)})",
             f"vault sessions: {', '.join(self.vault.domains()) or 'none (wire auth login <site>)'}",
-            f"browser cookie stores: {', '.join(sorted({s.browser for s in find_cookie_stores()})) or 'none found'}",
+            "browsers you can import a login from (wire auth login <site> --from-browser): "
+            + (", ".join(sorted({s.browser for s in find_cookie_stores()})) or "none found"),
             f"stage-4 browser: {'available' if self.browser.available() else 'not installed (pip install agent-wire[stealth])'}",
             "route cache: " + (", ".join(f"{d}→stage {s}" for d, s in routes) or "empty"),
             f"session buffer: {len(self.buffer)} pages, {self.buffer.total_bytes // 1024} KB",
@@ -304,14 +305,14 @@ DESCRIPTIONS = {
             "target='@username')."
         ),
         "wire_me": (
-            "Inspect the current user's own social/developer activity using their local logged-in "
-            "browser session (e.g., 'check my Twitter likes on my latest post', 'my Reddit saved "
-            "posts', 'my GitHub notifications/PRs'). Valid targets: latest_posts, likes, bookmarks, "
-            "notifications, stats."
+            "Inspect the current user's own social/developer activity using the session they saved "
+            "with `wire auth login` (e.g., 'check my Twitter likes on my latest post', 'my Reddit "
+            "saved posts', 'my GitHub notifications/PRs'). Valid targets: latest_posts, likes, "
+            "bookmarks, notifications, stats."
         ),
         "wire_status": (
-            "Check agent-wire channel health, active local browser cookie sessions, and anti-bot "
-            "route cache in under 10ms."
+            "Check agent-wire channel health, saved login sessions, and anti-bot route cache in "
+            "under 10ms."
         ),
     },
     "local": {

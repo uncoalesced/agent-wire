@@ -145,13 +145,28 @@ def version() -> None:
 
 
 @auth_app.command("login")
-def auth_login(site: str) -> None:
-    """Open a browser window once, log in, close it: cookies go to the encrypted vault."""
+def auth_login(
+    site: str,
+    from_browser: Annotated[
+        bool, typer.Option("--from-browser", help="copy this site's cookies from a local browser")
+    ] = False,
+) -> None:
+    """Save a session for one site in the encrypted vault (the only cookies agent-wire uses).
+
+    Opens a login window (stealth extra), or with --from-browser copies the site's cookies from
+    a browser you're already logged in to.
+    """
     from agent_wire.auth.cookie_vault import CookieVault
     from agent_wire.config import init_wire_home
 
     _utf8()
     vault = CookieVault(init_wire_home())
+    if from_browser:
+        n = asyncio.run(vault.import_from_browser(site))
+        typer.echo(
+            f"saved {n} cookies for {site}" if n else f"no {site} cookies found in local browsers"
+        )
+        return
     try:
         n = asyncio.run(vault.interactive_login(site))
     except ImportError as e:

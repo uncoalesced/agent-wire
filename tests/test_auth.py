@@ -93,22 +93,56 @@ def test_vault_roundtrip_is_encrypted(tmp_path):
     assert vault.remove("x.com") and vault.domains() == []
 
 
-def test_vault_wins_over_browsers(tmp_path, monkeypatch):
-    vault = CookieVault(tmp_path)
-    vault.put("reddit.com", {"reddit_session": "v"})
-
+def _no_browser_reads(monkeypatch):
     def boom(reg):
-        raise AssertionError("browsers must not be read when the vault has the site")
+        raise AssertionError(
+            "browser cookie stores must only be read by `wire auth login --from-browser`"
+        )
 
     monkeypatch.setattr(cookie_vault, "browser_cookies", boom)
+
+
+def test_cookies_come_only_from_the_vault(tmp_path, monkeypatch):
+    _no_browser_reads(monkeypatch)
+    vault = CookieVault(tmp_path)
+    assert asyncio.run(vault.cookies_for("www.bilibili.com")) == {}
+    vault.put("reddit.com", {"reddit_session": "v"})
     assert asyncio.run(vault.cookies_for("old.reddit.com")) == {"reddit_session": "v"}
 
 
-def test_falls_back_to_browsers(tmp_path, monkeypatch):
-    monkeypatch.setattr(cookie_vault, "browser_cookies", lambda reg: {"from": reg})
-    assert asyncio.run(CookieVault(tmp_path).cookies_for("www.bilibili.com")) == {
-        "from": "bilibili.com"
-    }
+def test_auth_wall_never_reads_browsers(tmp_path, monkeypatch):
+    from agent_wire.engine.http_pool import Fetched
+    from agent_wire.engine.waterfall import Waterfall, WireFetchError
+
+    _no_browser_reads(monkeypatch)
+
+    class Pool:
+        def __init__(self):
+            self.calls = []
+
+        async def get(self, url, *, cookies=None, **kw):
+            self.calls.append(cookies)
+            if "archive.org" in url:
+                return Fetched(
+                    url, 200, {"content-type": "application/json"}, b'{"archived_snapshots": {}}'
+                )
+            return Fetched(url, 401, {"content-type": "text/html"}, b"<html>log in</html>")
+
+    pool = Pool()
+    with pytest.raises(WireFetchError):
+        asyncio.run(Waterfall(pool, vault=CookieVault(tmp_path)).fetch("https://www.instagram.com/natgeo/",
+                                                                        channel="instagram"))  # fmt: skip
+    assert all(c is None for c in pool.calls)
+
+
+def test_explicit_browser_import(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        cookie_vault, "browser_cookies", lambda reg: seen.append(reg) or {"sid": "x"}
+    )
+    vault = CookieVault(tmp_path)
+    assert asyncio.run(vault.import_from_browser("https://www.reddit.com/r/x")) == 1
+    assert seen == ["reddit.com"] and vault.get("reddit.com") == {"sid": "x"}
 
 
 def test_rate_limiter_paces_per_domain():

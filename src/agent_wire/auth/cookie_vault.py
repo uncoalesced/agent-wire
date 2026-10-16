@@ -1,6 +1,9 @@
-"""Read-only browser cookie extraction plus an encrypted vault.enc fallback.
+"""Encrypted session vault (vault.enc). The only source of cookies agent-wire ever sends.
 
-Cookie values never leave this module except as request cookies; nothing here logs them.
+Sessions get in only when the user runs `wire auth login <site>`, either through a real login
+window or by explicitly importing that one site from a local browser (`--from-browser`).
+Nothing reads browser cookie stores on its own. Cookie values never leave this module except
+as request cookies; nothing here logs them.
 """
 
 import asyncio
@@ -73,13 +76,16 @@ class CookieVault:
 
     # ---- lookup ----------------------------------------------------------------------------
     async def cookies_for(self, domain: str) -> dict[str, str]:
-        """Explicit `wire auth login` vault first, then the user's browsers (read-only)."""
-        reg = registrable_domain(domain)
-        return self.get(reg) or await asyncio.to_thread(browser_cookies, reg)
+        """Sessions saved with `wire auth login` only; browsers are never read implicitly."""
+        return self.get(domain)
 
-    def browser_sessions(self) -> list[str]:
-        """Browsers with a readable cookie store (no values are read)."""
-        return sorted({s.browser for s in find_cookie_stores()})
+    async def import_from_browser(self, site: str) -> int:
+        """`wire auth login <site> --from-browser`: copy one site's cookies, on explicit request."""
+        reg = registrable_domain(site.split("/")[2] if "//" in site else site)
+        jar = await asyncio.to_thread(browser_cookies, reg)
+        if jar:
+            self.put(reg, jar)
+        return len(jar)
 
     async def interactive_login(self, url: str) -> int:
         """Open a real browser window once; save the cookies for the site when it is closed."""
