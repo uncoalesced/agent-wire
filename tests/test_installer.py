@@ -38,7 +38,7 @@ def test_claude_code_project(dirs):
     project, _ = dirs
     install("claude-code", dirs)
     e = entry_of(project / ".mcp.json")
-    assert e["command"] == "uvx" and e["args"][-2:] == ["agent-wire", "serve"]
+    assert e["args"][-1] == "serve" and e["command"] in ("uv", "uvx")
     assert e["env"]["WIRE_HOME"] == str(project / ".claude" / ".wire")
     skill = (project / ".claude/skills/agent-wire/SKILL.md").read_text(encoding="utf-8")
     assert skill.startswith("---\nname: agent-wire")
@@ -104,7 +104,7 @@ def test_hermes_yaml_insert_under_existing_key(dirs):
     cfg.write_text("model: x\nmcp_servers:\n  other:\n    command: y\n")
     install("hermes", dirs)
     text = cfg.read_text()
-    assert text.count("mcp_servers:") == 1 and "  agent_wire:\n    command: uvx" in text
+    assert text.count("mcp_servers:") == 1 and "  agent_wire:\n    command: uv" in text
     assert "  other:" in text
     r = install("hermes", dirs)[0]
     assert any("already registers" in n for n in r.notes)
@@ -153,7 +153,20 @@ def test_install_source_mirrors_how_it_was_installed(monkeypatch, direct_url, ex
     monkeypatch.setattr(ci.metadata, "distribution", lambda name: Dist())
     assert ci.install_source() == expected
     entry = ci.server_entry("standard", Path("/w"))
-    assert entry["args"] == (["--from", expected] if expected else []) + ["agent-wire", "serve"]
+    if expected and not expected.startswith("git+"):  # local checkout: reuse its venv, no rebuild
+        assert entry["command"] == "uv"
+        assert entry["args"] == [
+            "run",
+            "--quiet",
+            "--directory",
+            expected,
+            "--frozen",
+            "wire",
+            "serve",
+        ]
+    else:
+        assert entry["command"] == "uvx"
+        assert entry["args"] == (["--from", expected] if expected else []) + ["agent-wire", "serve"]
 
 
 def test_unknown_client(dirs):
