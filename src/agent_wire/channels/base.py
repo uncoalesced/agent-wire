@@ -4,7 +4,7 @@ import html as htmllib
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from selectolax.lexbor import LexborHTMLParser
@@ -90,6 +90,19 @@ def ts(value) -> datetime | None:
         return datetime.fromisoformat(str(value))
     except (ValueError, OSError, OverflowError):
         return None
+
+
+_REL = re.compile(r"(\d+)\s*(second|minute|hour|day|week|month|year)s?\s+ago", re.IGNORECASE)
+_REL_S = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 7 * 86400,
+          "month": 30 * 86400, "year": 365 * 86400}  # fmt: skip
+
+
+def relative_ts(text: str | None, now: datetime | None = None) -> datetime | None:
+    """'3 weeks ago' / 'Streamed 2 days ago' -> approximate aware datetime."""
+    m = _REL.search(text or "")
+    if not m:
+        return None
+    return (now or datetime.now(UTC)) - timedelta(seconds=int(m[1]) * _REL_S[m[2].lower()])
 
 
 def listing(items: list[dict]) -> str:
