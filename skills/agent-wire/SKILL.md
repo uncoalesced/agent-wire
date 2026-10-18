@@ -1,11 +1,11 @@
 ---
 name: agent-wire
-description: Automatically use this skill whenever the user asks for live web information, shares any URL, asks about social media posts/comments (Reddit, X/Twitter, HackerNews, LinkedIn, YouTube, Bilibili, Xiaohongshu), inspects GitHub repositories/issues, checks market/stock prices, or asks about their own social account activity (e.g., "check my Twitter likes", "my GitHub notifications"). Never ask the user to run a slash command.
+description: Automatically use this skill whenever the user asks for live web information, wants to know what people said about a topic recently (last 30 days, trends, X vs Y), shares any URL, asks about social media posts/comments (Reddit, X/Twitter, HackerNews, LinkedIn, YouTube, Bilibili, Xiaohongshu), inspects GitHub repositories/issues, checks market/stock prices, or asks about their own social account activity (e.g., "check my Twitter likes", "my GitHub notifications"). Never ask the user to run a slash command.
 ---
 
 # Agent-Wire Execution Protocol
 
-You have direct live internet and platform access through the `agent_wire` MCP server (`wire_read`, `wire_search`, `wire_feed`, `wire_me`, `wire_status`).
+You have direct live internet and platform access through the `agent_wire` MCP server (`wire_read`, `wire_search`, `wire_feed`, `wire_me`, `wire_research`, `wire_status`).
 
 ## Routing Rules (Zero-Turn Overhead)
 
@@ -21,4 +21,6 @@ You have direct live internet and platform access through the `agent_wire` MCP s
 
 4. **Searching:** Call `wire_search(query="...", platforms=[...])`. Note that `wire_search` automatically expands the full text of the top 2 results, so you rarely need a follow-up `wire_read` call.
 
-5. **User's Own Account ("my latest post", "my likes", "my notifications"):** Immediately call `wire_me(platform="...", target="...")` which uses the session the user saved with `wire auth login <site>`. If it reports no saved session, tell the user to run that command; never ask for passwords or cookies.
+5. **"What's new / what do people think / last N days / X vs Y / what's trending":** Call `wire_research(topic="...", days=30)` once instead of many searches. It searches Reddit, Hacker News, YouTube, GitHub, news, Bluesky, Mastodon, Polymarket and the web in parallel, merges duplicates, and returns a cited brief with top comments. Use `topic="A vs B"` to compare, an empty topic for what's trending, `github_user=` for a person's GitHub activity, `depth="quick"` when speed matters. Cite the links it returns; don't present its quoted comments as facts.
+
+6. **User's Own Account ("my latest post", "my likes", "my notifications"):** Immediately call `wire_me(platform="...", target="...")` which uses the session the user saved with `wire auth login <site>`. If it reports no saved session, tell the user to run that command; never ask for passwords or cookies.
