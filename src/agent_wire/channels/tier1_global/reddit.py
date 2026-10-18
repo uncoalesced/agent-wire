@@ -1,9 +1,16 @@
-"""Reddit: .json threads/listings (official app OAuth when configured, old.reddit mirror)."""
+"""Reddit: .json threads/listings (official app OAuth when configured, old.reddit mirror).
 
+When anonymous Reddit is blocked, reads fall back to the Arctic Shift archive (a free, volunteer
+API: small requests only, copies are captured shortly after posting so scores lag the live site).
+"""
+
+import asyncio
 import base64
 import os
+import re
 import time
-from urllib.parse import quote, urlsplit
+from datetime import datetime
+from urllib.parse import quote, urlencode, urlsplit
 
 from agent_wire.channels.base import Channel, WireUnsupported, listing, ts
 from agent_wire.engine.waterfall import WireFetchError
@@ -11,6 +18,10 @@ from agent_wire.firewall.outbound_privacy import parse_json
 from agent_wire.models import WireComment, WireSearchHit
 
 WWW = "https://www.reddit.com"
+ARCTIC = "https://arctic-shift.photon-reddit.com/api"
+ARCTIC_NOTE = "Arctic Shift archive copy (scores/comments as captured, not live)"
+_STOP = frozenset({"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "vs",
+                   "versus", "what", "is", "are", "how", "why", "best", "new"})  # fmt: skip
 PRUNE_DEPTH, PRUNE_SCORE = 3, 2
 BLOCKED_HINT = (
     "Reddit blocks anonymous access from this network. Set REDDIT_CLIENT_ID (a free 'installed app' "
@@ -75,6 +86,19 @@ def listing_items(data: dict) -> list[dict]:
             "snippet": d.get("selftext", ""),
         })  # fmt: skip
     return items
+
+
+def post_hit(d: dict, archived: bool = False) -> WireSearchHit:
+    link = None if d.get("is_self") or "reddit.com" in (d.get("url") or "") else d.get("url")
+    return WireSearchHit(
+        url=WWW + d.get("permalink", ""), title=d.get("title") or "",
+        snippet="" if d.get("selftext") in ("[removed]", "[deleted]") else (d.get("selftext") or "")[:300],
+        source="reddit",
+        rank_score=float(d.get("score") or 0), timestamp=ts(d.get("created_utc")),
+        author=d.get("author"), link=link,
+        engagement={"score": d.get("score") or 0, "comments": d.get("num_comments") or 0,
+                    **({"archived": 1} if archived else {})},
+    )  # fmt: skip
 
 
 def _path(url: str) -> str:
@@ -144,19 +168,101 @@ class RedditChannel(Channel):
             f = await self.fetch(url, archive=False)
             path, segs = _path(f.url), [s for s in _path(f.url).split("/") if s]
         if "comments" in segs:
-            data, f = await self._json(path, "limit=200&sort=top")
+            try:
+                data, f = await self._json(path, "limit=200&sort=top")
+            except WireFetchError:
+                return await self._arctic_thread(url, segs[segs.index("comments") + 1])
             return self.doc(f, url, **parse_thread(data))
         if segs[:1] in (["r"], ["user"], ["u"]):
             return await self.feed("/".join(segs), limit=25)
         return await self.ctx.channel("web").read(url, query=query, section=section)
 
-    async def search(self, query, *, limit=5, sort="relevance"):
-        data, _ = await self._json("/search", f"q={quote(query)}&sort={sort}&limit={limit}")
-        return [
-            WireSearchHit(url=it["url"], title=it["title"] or "", snippet=it["snippet"][:300],
-                          source="reddit", rank_score=float(str(it["meta"][0]).lstrip("+") or 0))
-            for it in listing_items(data)[:limit]
-        ]  # fmt: skip
+    async def search(self, query, *, limit=5, sort="relevance", since=None):
+        window = "&t=month" if since else ""
+        try:
+            data, _ = await self._json(
+                "/search", f"q={quote(query)}&sort={sort}&limit={limit}{window}"
+            )
+        except WireFetchError:
+            return await self._arctic_search(query, limit, since)
+        return [post_hit(ch.get("data", {})) for ch in data.get("data", {}).get("children", [])
+                if ch.get("kind") == "t3"][:limit]  # fmt: skip
+
+    # ---- Arctic Shift fallback --------------------------------------------------------------
+    async def _arctic(self, path: str, **params):
+        url = f"{ARCTIC}{path}?{urlencode({k: v for k, v in params.items() if v is not None})}"
+        data: dict = {}
+        for attempt in range(2):
+            try:
+                data, f = await self.fetch_json(url, archive=False)
+            except ValueError as e:  # HTML error page instead of JSON
+                raise WireFetchError(f"arctic-shift unavailable. {BLOCKED_HINT}") from e
+            if isinstance(data, dict) and data.get("data") is not None:
+                return data["data"], f
+            if attempt == 0:  # "Timeout. Maybe slow down a bit": one polite retry
+                await asyncio.sleep(3)
+        raise WireFetchError(f"arctic-shift: {data.get('error') or 'no data'} ({BLOCKED_HINT})")
+
+    async def _arctic_thread(self, url: str, post_id: str):
+        posts, f = await self._arctic("/posts/ids", ids=post_id)
+        if not posts:
+            raise WireFetchError(f"{url}: not in the Arctic Shift archive. {BLOCKED_HINT}")
+        tree, _ = await self._arctic("/comments/tree", link_id=f"t3_{post_id}", limit=300)
+        data = [{"data": {"children": [{"kind": "t3", "data": posts[0]}]}},
+                {"data": {"children": tree}}]  # fmt: skip
+        fields = parse_thread(data)
+        fields["metadata"]["source"] = ARCTIC_NOTE
+        return self.doc(f, url, **fields)
+
+    async def subreddits_for(self, query: str, n: int = 3) -> list[str]:
+        """Dedicated-subreddit discovery: subreddits whose names start with a topic word."""
+        words = [
+            w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 2 and w not in _STOP
+        ]
+        if m := re.findall(r"\br/(\w+)", query):
+            return m[:n]
+        found: dict[str, int] = {}
+        for w in words[:3]:
+            try:
+                subs, _ = await self._arctic("/subreddits/search", subreddit_prefix=w, limit=5)
+            except WireFetchError:
+                continue
+            for sub in subs:
+                name = sub.get("display_name") or ""
+                if name:
+                    found[name] = max(found.get(name, 0), sub.get("subscribers") or 0)
+        return sorted(found, key=lambda k: -found[k])[:n]
+
+    async def _arctic_search(self, query, limit, since: datetime | None):
+        subs = await self.subreddits_for(query)
+        if not subs:
+            raise WireFetchError(f"reddit search: no matching subreddits found. {BLOCKED_HINT}")
+        words = [w for w in re.findall(r"[A-Za-z0-9+#.]+", re.sub(r"\br/\w+", "", query))
+                 if w.lower() not in _STOP]  # fmt: skip
+        after = since.date().isoformat() if since else None
+        cap = min(limit * 2, 25)
+        hits, seen = [], set()
+        for sub in subs:
+            # every topic word (title search ANDs them), then the word that named this subreddit:
+            # r/rust is about rust, so "rust programming" there only needs "rust"
+            tries = [" ".join(words)] if words else [None]
+            own = [w for w in words if sub.lower().startswith(w.lower())]
+            if own and own[0] != tries[0]:
+                tries.append(own[0])
+            for title in tries:
+                try:
+                    posts, _ = await self._arctic("/posts/search", subreddit=sub, title=title,
+                                                  after=after, limit=cap, sort="desc")  # fmt: skip
+                except WireFetchError:
+                    break
+                for p in posts:
+                    if p.get("id") not in seen:
+                        seen.add(p.get("id"))
+                        hits.append(post_hit(p, archived=True))
+                if len(posts) >= 3:
+                    break
+        hits.sort(key=lambda h: -h.rank_score)
+        return hits[:limit]
 
     async def feed(self, target, *, sort="hot", limit=10):
         t = target.strip().strip("/").removeprefix("https://www.reddit.com/")
@@ -166,7 +272,13 @@ class RedditChannel(Channel):
         else:
             sub = t.removeprefix("r/").split("/")[0]
             path, title = f"/r/{sub}/{sort}", f"r/{sub} · {sort}"
-        data, f = await self._json(path, f"limit={limit}")
+        try:
+            data, f = await self._json(path, f"limit={limit}")
+        except WireFetchError:
+            who = {"author": user} if t.startswith(("u/", "user/", "@")) else {"subreddit": sub}
+            posts, f = await self._arctic("/posts/search", limit=limit, sort="desc", **who)
+            data = {"data": {"children": [{"kind": "t3", "data": p} for p in posts]}}
+            title += f" · {ARCTIC_NOTE}"
         return self.doc(f, f"{WWW}{path}", title=title, body=listing(listing_items(data)[:limit]))
 
     async def me(self, target="latest_posts", *, limit=5):
