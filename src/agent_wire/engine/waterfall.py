@@ -70,9 +70,14 @@ class Waterfall:
             except RequestException as e:
                 errors.append(f"stage {stage}: {type(e).__name__}")
                 continue
+            except Exception as e:
+                if stage != 4:
+                    raise
+                errors.append(f"stage 4: {type(e).__name__}")
+                continue
             if f is None:
                 continue
-            if f.ok and not is_blocked(f):
+            if f.ok and not is_blocked(f, rendered=stage == 4):
                 f.stage = stage
                 f.auth = "cookie" if cookies and stage <= 2 else "none"
                 self._remember(domain, stage, cf, ua)
