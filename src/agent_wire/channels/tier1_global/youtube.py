@@ -3,7 +3,14 @@
 import re
 from urllib.parse import parse_qs, urlsplit
 
-from agent_wire.channels.base import Channel, WireUnsupported, assigned_json, compact_count, listing
+from agent_wire.channels.base import (
+    Channel,
+    WireUnsupported,
+    assigned_json,
+    compact_count,
+    listing,
+    relative_ts,
+)
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.media.subtitle_cleaner import parse_captions, parse_chapters, to_paragraphs
 from agent_wire.models import WireComment, WireSearchHit
@@ -67,6 +74,8 @@ def parse_search(data: dict, limit: int) -> list[WireSearchHit]:
                 snippet=" · ".join(x for x in (_runs(v.get("ownerText")), _runs(v.get("viewCountText")),
                                                _runs(v.get("lengthText")), _runs(v.get("publishedTimeText"))) if x),
                 source="youtube", rank_score=float(compact_count(_runs(v.get("viewCountText")))),
+                timestamp=relative_ts(_runs(v.get("publishedTimeText"))), author=_runs(v.get("ownerText")),
+                engagement={"views": compact_count(_runs(v.get("viewCountText")))},
             )
         )  # fmt: skip
         if len(hits) >= limit:
