@@ -15,6 +15,7 @@ class WireComment(_Strict):
     author_handle: str | None = None
     timestamp: datetime | None = None
     score: int = 0
+    score_kind: str = "points"  # or "replies" where a site hides comment points (HN)
     depth: int = 0
     is_op: bool = False
     is_accepted: bool = False
@@ -43,6 +44,11 @@ class WireSearchHit(_Strict):
     snippet: str = ""
     source: str = "web"
     rank_score: float = 0.0
+    # Filled where the platform exposes them; wire_research scores freshness and engagement.
+    timestamp: datetime | None = None
+    author: str | None = None
+    link: str | None = None  # the article a post points at (HN/Reddit/Techmeme), for dedup
+    engagement: dict[str, int] = {}  # score, comments, likes, reposts, views, volume ...
 
 
 class WireTelemetry(_Strict):
