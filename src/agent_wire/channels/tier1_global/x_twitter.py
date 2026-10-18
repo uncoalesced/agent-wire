@@ -308,7 +308,11 @@ class XChannel(Channel):
         }, cookies=jar)  # fmt: skip
         return [
             WireSearchHit(url=f"https://x.com/{t['author']}/status/{t['id']}", title=f"@{t['author']}",
-                          snippet=t["text"], source="x", rank_score=float(t.get("likes") or 0))
+                          snippet=t["text"], source="x", rank_score=float(t.get("likes") or 0),
+                          timestamp=t.get("created"), author=t["author"],
+                          engagement={"likes": t.get("likes") or 0, "reposts": t.get("retweets") or 0,
+                                      "comments": t.get("replies") or 0,
+                                      "views": int(t.get("views") or 0)})
             for t in graphql_tweets(data)[:limit]
         ]  # fmt: skip
 
