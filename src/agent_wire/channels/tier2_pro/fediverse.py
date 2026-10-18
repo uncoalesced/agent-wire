@@ -5,12 +5,23 @@ from urllib.parse import quote, urlsplit
 from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, listing, ts
 from agent_wire.models import WireComment, WireSearchHit
 
-BSKY = "https://public.api.bsky.app/xrpc"
+BSKY = "https://api.bsky.app/xrpc"  # public.api.bsky.app 403s searchPosts for anonymous callers
 
 
 def _bsky_url(post: dict) -> str:
     rkey = post.get("uri", "").rsplit("/", 1)[-1]
     return f"https://bsky.app/profile/{post.get('author', {}).get('handle')}/post/{rkey}"
+
+
+def _bsky_hit(p: dict) -> WireSearchHit:
+    handle = p.get("author", {}).get("handle")
+    return WireSearchHit(
+        url=_bsky_url(p), title=f"@{handle}", snippet=p.get("record", {}).get("text", ""),
+        source="bluesky", rank_score=float(p.get("likeCount") or 0),
+        timestamp=ts(p.get("record", {}).get("createdAt")), author=handle,
+        engagement={"likes": p.get("likeCount") or 0, "reposts": p.get("repostCount") or 0,
+                    "comments": p.get("replyCount") or 0},
+    )  # fmt: skip
 
 
 def parse_bsky_thread(
@@ -102,14 +113,33 @@ class FediverseChannel(Channel):
             metadata={"boosts": status.get("reblogs_count"), "replies": status.get("replies_count")},
         )  # fmt: skip
 
-    async def search(self, query, *, limit=5, sort="relevance"):
+    async def search(self, query, *, limit=5, sort="relevance", since=None):
         order = "latest" if sort in ("new", "latest") else "top"
+        window = f"&since={since.strftime('%Y-%m-%dT%H:%M:%SZ')}" if since else ""
         data, _ = await self.fetch_json(
-            f"{BSKY}/app.bsky.feed.searchPosts?q={quote(query)}&limit={limit}&sort={order}"
+            f"{BSKY}/app.bsky.feed.searchPosts?q={quote(query)}&limit={limit}&sort={order}{window}"
         )
-        return [WireSearchHit(url=_bsky_url(p), title=f"@{p.get('author', {}).get('handle')}",
-                              snippet=p.get("record", {}).get("text", ""), source="bluesky",
-                              rank_score=float(p.get("likeCount") or 0)) for p in data.get("posts", [])]  # fmt: skip
+        return [_bsky_hit(p) for p in data.get("posts", [])]
+
+    async def mastodon_tag(self, tag: str, *, limit=10, instance="mastodon.social"):
+        """Public hashtag timeline (no auth on most instances)."""
+        tag = "".join(ch for ch in tag if ch.isalnum() or ch == "_")
+        data, _ = await self.fetch_json(
+            f"https://{instance}/api/v1/timelines/tag/{tag}?limit={limit}"
+        )
+        hits = []
+        for s in data:
+            s = s.get("reblog") or s
+            acct = (s.get("account") or {}).get("acct")
+            hits.append(WireSearchHit(
+                url=s.get("url") or s.get("uri", ""), title=f"@{acct}",
+                snippet=html_to_markdown(s.get("content", ""))[:300], source="mastodon",
+                rank_score=float(s.get("favourites_count") or 0), timestamp=ts(s.get("created_at")),
+                author=acct, engagement={"likes": s.get("favourites_count") or 0,
+                                         "reposts": s.get("reblogs_count") or 0,
+                                         "comments": s.get("replies_count") or 0},
+            ))  # fmt: skip
+        return hits
 
     async def feed(self, target, *, sort="hot", limit=10):
         t = target.strip().removeprefix("bsky:")
