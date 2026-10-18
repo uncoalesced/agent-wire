@@ -20,6 +20,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from agent_wire.auth.browser_paths import find_cookie_stores
 from agent_wire.engine.http_pool import registrable_domain
 
+LOGIN_POLL_S = 1.0  # how often the login window's cookies are snapshotted
+
 try:  # no wheel for every Python yet; Chromium extraction is skipped without it
     import rookiepy
 except ImportError:  # pragma: no cover - depends on platform wheels
@@ -93,17 +95,28 @@ class CookieVault:
 
         profile = self.home / "login-profile"
         reg = registrable_domain(url.split("/")[2] if "//" in url else url)
+        jar: dict[str, str] = {}
         async with async_playwright() as p:
-            ctx = await p.chromium.launch_persistent_context(str(profile), headless=False)
+            from agent_wire.engine.stealth_browser import browser_env
+
+            ctx = await p.chromium.launch_persistent_context(
+                str(profile), headless=False, env=browser_env(self.home)
+            )
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
             await page.goto(url if "//" in url else f"https://{url}")
-            await page.wait_for_event("close", timeout=0)
-            jar = {
-                c["name"]: c["value"]
-                for c in await ctx.cookies()
-                if c["domain"].lstrip(".").endswith(reg)
-            }
-            await ctx.close()
+            # Closing the window tears the whole context down, so cookies can't be read after
+            # it: keep a fresh snapshot while it's open and save the last one.
+            while not page.is_closed():
+                try:
+                    jar = {c["name"]: c["value"] for c in await ctx.cookies()
+                           if c["domain"].lstrip(".").endswith(reg)}  # fmt: skip
+                except Exception:  # noqa: BLE001 - TargetClosedError as the window goes away
+                    break
+                await asyncio.sleep(LOGIN_POLL_S)
+            try:
+                await ctx.close()
+            except Exception:  # noqa: BLE001,S110 - already closed with the window
+                pass
         shutil.rmtree(profile, ignore_errors=True)  # don't leave an unencrypted session on disk
         if jar:
             self.put(reg, jar)
