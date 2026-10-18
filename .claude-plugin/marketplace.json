@@ -7,7 +7,7 @@
     {
       "name": "agent-wire",
       "source": "./",
-      "description": "Live web and 27-platform access for agents: token-compressed, privacy-firewalled, injection-shielded."
+      "description": "Live web and 31-platform access for agents: token-compressed, privacy-firewalled, injection-shielded."
     }
   ]
 }
