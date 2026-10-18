@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: uv sync --extra dev --locked
+      - name: Lint
+        run: uv run ruff check src tests
+      - name: Test (offline; network calls are faked)
+        run: uv run pytest -q
+      - name: No temp-dir writes in the package
+        shell: bash
+        run: "! grep -rnE 'tempfile|/tmp' src/"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Wheel bundles the skill and rules
+        run: |
+          python - <<'EOF'
+          import glob, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          for need in ("agent_wire/assets/SKILL.md", "agent_wire/assets/wire-worker.md",
+                       "agent_wire/research/engine.py"):
+              assert need in names, need
+          print("ok", len(names), "files")
+          EOF
+      - name: Smoke-run the built wheel
+        run: uvx --from "$(ls dist/*.whl)" agent-wire version
