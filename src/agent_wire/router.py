@@ -25,6 +25,7 @@ DOMAINS = {
     "instagram.com": "meta_social", "facebook.com": "meta_social", "fb.watch": "meta_social",
     "medium.com": "publishing", "substack.com": "publishing",
     "bsky.app": "fediverse",
+    "polymarket.com": "polymarket", "stocktwits.com": "stocktwits", "dev.to": "devto",
     "web.archive.org": "archive", "archive.ph": "archive", "archive.today": "archive",
     "archive.is": "archive",
     # tier 3
@@ -58,6 +59,9 @@ PLATFORMS = {
     "medium": "publishing", "substack": "publishing",
     "bluesky": "fediverse", "bsky": "fediverse", "mastodon": "fediverse", "fediverse": "fediverse",
     "archive": "archive", "wayback": "archive",
+    "polymarket": "polymarket", "predictions": "polymarket", "odds": "polymarket",
+    "news": "news", "techmeme": "news", "googlenews": "news",
+    "stocktwits": "stocktwits", "devto": "devto", "dev.to": "devto",
     "bilibili": "bilibili", "xhs": "xiaohongshu", "xiaohongshu": "xiaohongshu", "red": "xiaohongshu",
     "wechat": "wechat", "weixin": "wechat", "zhihu": "zhihu", "v2ex": "v2ex",
     "douyin": "douyin_tiktok", "tiktok": "douyin_tiktok", "xiaoyuzhou": "xiaoyuzhou",
