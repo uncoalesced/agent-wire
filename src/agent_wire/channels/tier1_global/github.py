@@ -11,7 +11,7 @@ from selectolax.lexbor import LexborHTMLParser
 
 from agent_wire.channels.base import Channel, WireUnsupported, compact_count, listing, ts
 from agent_wire.compression.anchor_slicer import parse_line_anchor, slice_lines, slice_section
-from agent_wire.models import WireComment, WireSearchHit
+from agent_wire.models import WireComment, WireDocument, WireSearchHit
 
 API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
@@ -35,6 +35,29 @@ def github_token() -> str | None:
         except (OSError, subprocess.TimeoutExpired):
             return None
     return None
+
+
+def _repo_hit(r: dict) -> WireSearchHit:
+    return WireSearchHit(
+        url=r["html_url"], title=r["full_name"], snippet=r.get("description") or "",
+        source="github", rank_score=float(r.get("stargazers_count", 0)),
+        timestamp=ts(r.get("pushed_at")), author=(r.get("owner") or {}).get("login"),
+        engagement={"stars": r.get("stargazers_count") or 0, "forks": r.get("forks_count") or 0},
+    )  # fmt: skip
+
+
+def _issue_hit(i: dict) -> WireSearchHit:
+    kind = "PR" if i.get("pull_request") else "issue"
+    repo = i.get("repository_url", "").removeprefix(f"{API}/repos/")
+    return WireSearchHit(
+        url=i["html_url"], title=f"{repo}: {i.get('title', '')}",
+        snippet=f"{kind} · {i.get('state')} · {i.get('comments', 0)} comments · "
+                + (i.get("body") or "")[:200],
+        source="github", rank_score=float(i.get("comments") or 0),
+        timestamp=ts(i.get("created_at")), author=(i.get("user") or {}).get("login"),
+        engagement={"comments": i.get("comments") or 0,
+                    "reactions": (i.get("reactions") or {}).get("total_count", 0)},
+    )  # fmt: skip
 
 
 class GitHubChannel(Channel):
@@ -217,14 +240,42 @@ class GitHubChannel(Channel):
                         metadata={"followers": u.get("followers"), "public_repos": u.get("public_repos")})  # fmt: skip
 
     # ---- search / feed / me ----------------------------------------------------------------
-    async def search(self, query, *, limit=5, sort="relevance"):
+    async def search(self, query, *, limit=5, sort="relevance", since=None):
         order = "&sort=stars" if sort in ("top", "stars") else ""
+        if since:  # research window: repos active lately plus issues/discussions opened lately
+            day = since.date().isoformat()
+            repos, _ = await self.api(f"/search/repositories?q={quote(query)}+pushed:>{day}"
+                                      f"&per_page={limit}&sort=stars")  # fmt: skip
+            issues, _ = await self.api(f"/search/issues?q={quote(query)}+created:>{day}"
+                                       f"&per_page={limit}&sort=comments")  # fmt: skip
+            return [_repo_hit(r) for r in repos.get("items", [])[:limit]] + [
+                _issue_hit(i) for i in issues.get("items", [])[:limit]
+            ]
         data, _ = await self.api(f"/search/repositories?q={quote(query)}&per_page={limit}{order}")
-        return [
-            WireSearchHit(url=r["html_url"], title=r["full_name"], snippet=r.get("description") or "",
-                          source="github", rank_score=float(r.get("stargazers_count", 0)))
-            for r in data.get("items", [])[:limit]
-        ]  # fmt: skip
+        return [_repo_hit(r) for r in data.get("items", [])[:limit]]
+
+    async def person(self, user: str, *, since=None, limit=10) -> WireDocument:
+        """GitHub person mode: recent PR velocity, merged count, top and freshest repos."""
+        user = user.lstrip("@").strip("/")
+        q = f"author:{user}+type:pr" + (f"+created:>{since.date().isoformat()}" if since else "")
+        prs, f = await self.api(f"/search/issues?q={q}&per_page=30&sort=created")
+        repos, _ = await self.api(f"/users/{user}/repos?sort=pushed&per_page=30")
+        merged = sum(
+            1 for p in prs.get("items", []) if (p.get("pull_request") or {}).get("merged_at")
+        )
+        top = sorted(repos, key=lambda r: -r.get("stargazers_count", 0))[:limit]
+        lines = [f"PRs opened in window: {prs.get('total_count', 0)} · merged (sampled): {merged}", "",
+                 "Recent PRs:"]  # fmt: skip
+        lines += [f"- [{p['title']}]({p['html_url']}) · {p.get('state')} · {(p.get('created_at') or '')[:10]}"
+                  for p in prs.get("items", [])[:limit]]  # fmt: skip
+        lines += ["", "Top repos:"] + [
+            f"- [{r['full_name']}]({r['html_url']}) · ★{r.get('stargazers_count', 0)} · "
+            f"pushed {(r.get('pushed_at') or '')[:10]} · {r.get('description') or ''}"
+            for r in top
+        ]
+        return self.doc(f, f"https://github.com/{user}", title=f"GitHub · {user}",
+                        author_handle=user, body="\n".join(lines),
+                        metadata={"prs": prs.get("total_count", 0), "merged_sample": merged})  # fmt: skip
 
     async def feed(self, target, *, sort="hot", limit=10):
         t = target.strip().strip("/").removeprefix("https://github.com/")
