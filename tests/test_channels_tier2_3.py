@@ -48,7 +48,7 @@ def ctx_with(routes=None, pool_routes=None, vault=None):
 
 
 def test_every_registered_channel_loads():
-    assert len(MODULES) == 27
+    assert len(MODULES) == 31
     for name in MODULES:
         assert channel_class(name).name == name
 

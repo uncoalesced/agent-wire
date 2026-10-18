@@ -78,11 +78,16 @@ def install_source() -> str | None:
 
 
 def server_entry(profile: str, wire_home: Path) -> dict:
+    """uvx for registry/git installs (cached env); `uv run` for a local checkout, because
+    `uvx --from <path>` rebuilds the environment on every start and blows client connect timeouts."""
     src = install_source()
-    args = (["--from", src] if src else []) + ["agent-wire", "serve"]
-    if profile == "local":
-        args += ["--profile", "local"]
-    return {"command": "uvx", "args": args, "env": {"WIRE_HOME": str(wire_home)}}
+    tail = ["--profile", "local"] if profile == "local" else []
+    env = {"WIRE_HOME": str(wire_home)}
+    if src and not src.startswith("git+"):
+        args = ["run", "--quiet", "--directory", src, "--frozen", "wire", "serve", *tail]
+        return {"command": "uv", "args": args, "env": env}
+    args = (["--from", src] if src else []) + ["agent-wire", "serve", *tail]
+    return {"command": "uvx", "args": args, "env": env}
 
 
 # ---- file helpers -------------------------------------------------------------------------------

@@ -13,6 +13,38 @@ from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.models import WireSearchHit
 
 API = "https://export.arxiv.org/api/query"
+_SUBMITTED = re.compile(r"Submitted\s+(\d{1,2})\s+([A-Za-z]+),?\s+(\d{4})")
+
+
+def _words(node) -> str:
+    return " ".join(node.text(separator=" ").split()) if node else ""
+
+
+def parse_search_html(html: str) -> list[WireSearchHit]:
+    """arxiv.org/search results (used when the export API times out)."""
+    from datetime import UTC, datetime
+
+    from selectolax.lexbor import LexborHTMLParser
+
+    hits = []
+    for li in LexborHTMLParser(html).css("li.arxiv-result"):
+        a = li.css_first("p.list-title a")
+        if not a or not (href := a.attributes.get("href")):
+            continue
+        when = None
+        if m := _SUBMITTED.search(_words(li.css_first("p.is-size-7"))):
+            try:
+                when = datetime.strptime(f"{m[1]} {m[2]} {m[3]}", "%d %B %Y").replace(tzinfo=UTC)
+            except ValueError:
+                when = None
+        hits.append(WireSearchHit(
+            url=href, title=_words(li.css_first("p.title")), source="arxiv", timestamp=when,
+            snippet=_words(li.css_first("span.abstract-full")).removesuffix("△ Less").strip()[:300],
+            author=", ".join(_words(x) for x in li.css("p.authors a")[:3]),
+        ))  # fmt: skip
+    return hits
+
+
 S2 = "https://api.semanticscholar.org/graph/v1/paper/arXiv:{}?fields=title,year,venue,citationCount,tldr"
 _ID = re.compile(r"(\d{4}\.\d{4,5}(?:v\d+)?|[a-z\-]+(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?)")
 _ATOM = "{http://www.w3.org/2005/Atom}"
@@ -94,9 +126,19 @@ class ArxivChannel(Channel):
         try:
             entries, _ = await self._query(f"all:{query}", limit, sort in ("new", "date", "recent"))
         except WireFetchError:  # export.arxiv.org is slow / rate-limited at times
-            return await self._s2_search(query, limit)
-        return [WireSearchHit(url=e["url"], title=e["title"], snippet=e["summary"][:300], source="arxiv")
+            try:
+                return await self._html_search(query, limit, sort in ("new", "date", "recent"))
+            except (WireFetchError, RequestException):
+                return await self._s2_search(query, limit)
+        return [WireSearchHit(url=e["url"], title=e["title"], snippet=e["summary"][:300], source="arxiv",
+                              timestamp=e["published"], author=", ".join(a for a in e["authors"][:3] if a))
                 for e in entries]  # fmt: skip
+
+    async def _html_search(self, query: str, limit: int, by_date: bool) -> list[WireSearchHit]:
+        order = "&order=-announced_date_first" if by_date else ""
+        f = await self.fetch(f"https://arxiv.org/search/?query={quote(query)}&searchtype=all"
+                             f"&size=25{order}", archive=False, browser=False)  # fmt: skip
+        return parse_search_html(f.text)[:limit]
 
     async def _s2_search(self, query: str, limit: int) -> list[WireSearchHit]:
         data, _ = await self.fetch_json(

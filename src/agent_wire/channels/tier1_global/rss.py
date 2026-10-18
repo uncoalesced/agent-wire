@@ -4,11 +4,15 @@ import xml.etree.ElementTree as ET
 
 import orjson
 
-from agent_wire.channels.base import Channel, html_text, listing, ts
+from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, ts
 from agent_wire.engine.http_pool import Fetched
 from agent_wire.models import WireDocument
 
 MAX_ITEMS = 50
+
+
+class NotAFeed(WireUnsupported):
+    """The URL answered with something other than RSS / Atom / JSON Feed (often an HTML page)."""
 
 
 def _local(tag: str) -> str:
@@ -29,7 +33,10 @@ def _text(el, *names) -> str:
 
 def parse_feed(content: bytes) -> tuple[str, list[dict]]:
     if content.lstrip().startswith(b"{"):
-        data = orjson.loads(content)
+        try:
+            data = orjson.loads(content)
+        except orjson.JSONDecodeError as e:
+            raise NotAFeed("not a feed (bad JSON)") from e
         items = [
             {
                 "title": it.get("title") or (it.get("content_text") or "")[:80],
@@ -41,7 +48,12 @@ def parse_feed(content: bytes) -> tuple[str, list[dict]]:
         ]  # fmt: skip
         return data.get("title", ""), items
 
-    root = ET.fromstring(content)
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as e:
+        raise NotAFeed(f"not a feed ({e})") from e
+    if _local(root.tag).lower() not in ("rss", "rdf", "feed"):
+        raise NotAFeed(f"not a feed (root element <{_local(root.tag)}>)")
     channel = _child(root, "channel")
     if channel is not None:  # RSS 2.0 / 0.9x
         entries, title = [e for e in channel if _local(e.tag) == "item"], _text(channel, "title")
@@ -104,7 +116,11 @@ class RssChannel(Channel):
                         metadata={"items": len(items)})  # fmt: skip
 
     async def read(self, url, *, query=None, section=None, include_comments=True):
-        return self.document(await self.fetch(url, browser=False), url)
+        f = await self.fetch(url, browser=False)
+        try:
+            return self.document(f, url)
+        except NotAFeed:  # a /feed-looking URL that serves a page: read it as one
+            return await self.ctx.channel("web").read(url, query=query, section=section)
 
     async def feed(self, target, *, sort="hot", limit=10):
         return self.document(await self.fetch(target, browser=False), target, limit)

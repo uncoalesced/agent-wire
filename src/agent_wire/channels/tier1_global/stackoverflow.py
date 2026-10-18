@@ -68,10 +68,12 @@ class StackOverflowChannel(Channel):
                       "views": q.get("view_count"), "answered": q.get("is_answered")},
         )  # fmt: skip
 
-    async def search(self, query, *, limit=5, sort="relevance"):
+    async def search(self, query, *, limit=5, sort="relevance", since=None):
         order = {"top": "votes", "new": "creation"}.get(sort, "relevance")
+        window = f"&fromdate={int(since.timestamp())}" if since else ""
         data, _ = await self.fetch_json(
-            f"{API}/search/advanced?q={quote(query)}&site=stackoverflow&sort={order}&order=desc&pagesize={limit}"
+            f"{API}/search/advanced?q={quote(query)}&site=stackoverflow&sort={order}&order=desc"
+            f"&pagesize={limit}{window}"
         )
         return [
             WireSearchHit(
@@ -80,6 +82,10 @@ class StackOverflowChannel(Channel):
                         + (" · accepted" if it.get("accepted_answer_id") else "")
                         + f" · {', '.join(it.get('tags', [])[:5])}",
                 source="stackoverflow", rank_score=float(it.get("score") or 0),
+                timestamp=ts(it.get("creation_date")),
+                author=(it.get("owner") or {}).get("display_name"),
+                engagement={"score": it.get("score") or 0, "comments": it.get("answer_count") or 0,
+                            "views": it.get("view_count") or 0},
             )
             for it in data.get("items", [])[:limit]
         ]  # fmt: skip

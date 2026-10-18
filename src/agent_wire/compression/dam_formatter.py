@@ -40,7 +40,11 @@ def format_comments(
     lines = []
     prefix = "  " * depth + ("> " if depth else "")
     for c in comments:
-        tags = [f"{c.score:+d}"] + ["OP"] * c.is_op + ["ACCEPTED"] * c.is_accepted
+        tags = (
+            [f"{c.score} replies" if c.score_kind == "replies" else f"{c.score:+d}"]
+            + ["OP"] * c.is_op
+            + ["ACCEPTED"] * c.is_accepted
+        )
         who = f"@{c.author_handle}" if c.author_handle else "@[deleted]"
         age = f" ({relative_age(c.timestamp, now)})" if c.timestamp else ""
         body = [ln for ln in c.body.strip().splitlines() if ln.strip()] or [""]

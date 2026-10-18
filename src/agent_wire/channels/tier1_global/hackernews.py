@@ -25,7 +25,7 @@ def parse_hn_comments(children: list, op: str | None, depth: int = 0) -> list[Wi
             WireComment(
                 id=str(c["id"]), body=html_to_markdown(c.get("text") or "[deleted]"),
                 author_handle=c.get("author"), timestamp=ts(c.get("created_at_i")),
-                score=_count(c),  # HN hides comment points; reply count is the public signal
+                score=_count(c), score_kind="replies",  # HN hides comment points
                 depth=depth, is_op=bool(op and c.get("author") == op),
                 replies=parse_hn_comments(c.get("children"), op, depth + 1),
             )
@@ -88,10 +88,11 @@ class HackerNewsChannel(Channel):
             metadata={"comments": _count(item)},
         )  # fmt: skip
 
-    async def search(self, query, *, limit=5, sort="relevance"):
+    async def search(self, query, *, limit=5, sort="relevance", since=None):
         endpoint = "search_by_date" if sort in ("new", "date", "recent") else "search"
+        window = f"&numericFilters=created_at_i>{int(since.timestamp())}" if since else ""
         data, _ = await self.fetch_json(
-            f"{ALGOLIA}/{endpoint}?query={quote(query)}&tags=story&hitsPerPage={limit}"
+            f"{ALGOLIA}/{endpoint}?query={quote(query)}&tags=story&hitsPerPage={limit}{window}"
         )
         return [
             WireSearchHit(
@@ -99,6 +100,9 @@ class HackerNewsChannel(Channel):
                 snippet=f"{h.get('points', 0)} points · {h.get('num_comments', 0)} comments"
                         + (f" · {h['url']}" if h.get("url") else ""),
                 source="hn", rank_score=float(h.get("points") or 0),
+                timestamp=ts(h.get("created_at_i")), author=h.get("author"),
+                engagement={"score": h.get("points") or 0, "comments": h.get("num_comments") or 0},
+                link=h.get("url"),
             )
             for h in data.get("hits", [])[:limit]
         ]  # fmt: skip

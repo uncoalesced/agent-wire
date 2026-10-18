@@ -34,7 +34,8 @@ def visible_text_len(html: bytes) -> int:
     return len(body.text(strip=True)) if body else 0
 
 
-def is_blocked(f: Fetched) -> bool:
+def is_blocked(f: Fetched, *, rendered: bool = False) -> bool:
+    """`rendered=True` for stage-4 output: JS already ran, so a short page is just short."""
     small = len(f.content) < SMALL_BODY
     if f.status in BLOCK_STATUSES and small:
         return True
@@ -44,7 +45,8 @@ def is_blocked(f: Fetched) -> bool:
     if small and any(s in head for s in _SOFT):
         return True
     return bool(
-        f.ok
+        not rendered
+        and f.ok
         and f.content
         and "html" in f.content_type
         and visible_text_len(f.content) < MIN_VISIBLE_CHARS

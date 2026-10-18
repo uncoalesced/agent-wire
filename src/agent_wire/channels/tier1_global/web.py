@@ -1,5 +1,7 @@
 """Generic web reader: waterfall fetch -> inbound shield -> trafilatura Markdown -> section slice."""
 
+import re
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 import trafilatura
@@ -22,6 +24,23 @@ def is_feed(content_type: str, content: bytes) -> bool:
     )
 
 
+_DATE_HINT = re.compile(
+    r"article:published_time|article:modified_time|datePublished|dateModified|<time[\s>]"
+    r"|name=[\"'](?:date|pubdate|publishdate|dc\.date)",
+    re.IGNORECASE,
+)
+
+
+def _real_date(date: str | None, html: str) -> str | None:
+    """Drop trafilatura's fallback date: with no date markup it reports the crawl day (today)."""
+    if not date:
+        return None
+    today = datetime.now(UTC).date()
+    if date[:10] in {(today + timedelta(days=d)).isoformat() for d in (-1, 0, 1)}:
+        return date if _DATE_HINT.search(html) else None
+    return date
+
+
 def extract_article(html: str) -> tuple[str, dict]:
     cleaned = clean_html(html)
     body = trafilatura.extract(
@@ -38,7 +57,7 @@ def extract_article(html: str) -> tuple[str, dict]:
     info = {
         "title": getattr(meta, "title", None),
         "author": getattr(meta, "author", None),
-        "date": getattr(meta, "date", None),
+        "date": _real_date(getattr(meta, "date", None), html),
         "site": getattr(meta, "sitename", None),
     }
     body = body or html_to_markdown(cleaned, links=False)
