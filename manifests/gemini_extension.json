@@ -6,7 +6,7 @@
   "mcpServers": {
     "agent_wire": {
       "command": "uvx",
-      "args": ["agent-wire", "serve"],
+      "args": ["agent-wire-cli", "serve"],
       "env": {
         "WIRE_HOME": "~/.gemini/extensions/agent-wire/.wire"
       }
