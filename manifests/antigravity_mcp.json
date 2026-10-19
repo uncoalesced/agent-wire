@@ -2,7 +2,7 @@
   "mcpServers": {
     "agent_wire": {
       "command": "uvx",
-      "args": ["agent-wire", "serve"],
+      "args": ["agent-wire-cli", "serve"],
       "env": {
         "WIRE_HOME": ".agent/.wire"
       }
