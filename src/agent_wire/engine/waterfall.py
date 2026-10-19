@@ -83,8 +83,10 @@ class Waterfall:
                 self._remember(domain, stage, cf, ua)
                 return f
             last = f
-            if f.status in (404, 410):
-                archive_only = True  # really gone: only an archive can help
+            if f.status in (404, 410, 429):
+                archive_only = (
+                    True  # gone, or rate-limited (new fingerprints won't help): archive only
+                )
 
         if self.ledger and route:
             self.ledger.clear_route(domain)
@@ -106,7 +108,7 @@ class Waterfall:
             f = None
             for profile in IMPERSONATE_ROTATION:
                 f = await self._get(url, jar or None, profile, {**req, "headers": hdrs})
-                if f.ok and not is_blocked(f):
+                if (f.ok and not is_blocked(f)) or f.status == 429:
                     break
             return f, None, None
         if stage == 3:  # never send the user's cookies to mirrors or archives
