@@ -167,7 +167,10 @@ RSS = f"""<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2
 
 
 def test_reddit_search_uses_live_rss_when_json_is_blocked(make_ctx, run):
-    routes = {"search.rss": fetched(RSS), "reddit.com": fetched(b"<html>blocked</html>", status=403)}
+    routes = {
+        "search.rss": fetched(RSS),
+        "reddit.com": fetched(b"<html>blocked</html>", status=403),
+    }
     ctx = make_ctx(routes)
     hits = run(ctx.channel("reddit").search("uv python", since=NOW - timedelta(days=30)))
     assert [h.title for h in hits] == ["uv is great"]  # subreddit result and out-of-window dropped
@@ -202,6 +205,22 @@ def test_bluesky_hits_and_mastodon_tag(make_ctx, run):
     m = run(ctx.channel("fediverse").mastodon_tag("#python!"))
     assert m[0].source == "mastodon" and m[0].snippet == "py"
     assert fediverse.BSKY == "https://api.bsky.app/xrpc"
+
+
+def test_mastodon_profile_url_reads_account_feed_else_web(make_ctx, run):
+    toot = {
+        "url": "https://m.s/@u/1",
+        "content": "<p>hello fedi</p>",
+        "created_at": NOW.isoformat(),
+    }
+    ctx = make_ctx({"accounts/lookup?acct=u": {"id": "9"}, "accounts/9/statuses": [toot]})
+    doc = run(ctx.channel("fediverse").read("https://m.s/@u"))
+    assert doc.title == "@u@m.s" and "hello fedi" in doc.body
+    page = fetched(b"<html><title>Team</title><body><p>We are the team.</p></body></html>",
+                   url="https://example.org/@team", ctype="text/html")  # fmt: skip
+    ctx = make_ctx({"api/v1/accounts": fetched(b"<html>nope</html>"), "example.org": page})
+    doc = run(ctx.channel("fediverse").read("https://example.org/@team"))
+    assert "the team" in doc.body  # not a Mastodon host: plain web read
 
 
 # ---- github person mode -------------------------------------------------------------------------
