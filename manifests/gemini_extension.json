@@ -1,6 +1,6 @@
 {
   "name": "agent-wire",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Live web and platform access: token-compressed, privacy-firewalled, injection-shielded.",
   "contextFileName": "GEMINI.md",
   "mcpServers": {
