@@ -154,6 +154,38 @@ def test_reddit_arctic_retries_once_then_explains(make_ctx, run, monkeypatch):
     assert sum("posts/ids" in u for u, _ in ctx.waterfall.calls) == 2
 
 
+RSS = f"""<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">
+<entry><id>t5_sub</id><title>python</title><link href="https://www.reddit.com/r/python/"/></entry>
+<entry><author><name>/u/op</name></author><category term="Python"/><id>t3_abc</id>
+<content type="html">&lt;div class="md"&gt;&lt;p&gt;uv body&lt;/p&gt;&lt;/div&gt; submitted by
+&lt;a href="https://www.reddit.com/user/op"&gt;/u/op&lt;/a&gt;
+&lt;span&gt;&lt;a href="https://astral.sh/uv"&gt;[link]&lt;/a&gt;&lt;/span&gt;</content>
+<link href="https://www.reddit.com/r/Python/comments/abc/uv_is_great/"/>
+<published>{NOW.isoformat()}</published><title>uv is great</title></entry>
+<entry><id>t3_old</id><title>old</title><link href="https://www.reddit.com/r/Python/comments/old/"/>
+<published>{(NOW - timedelta(days=90)).isoformat()}</published></entry></feed>""".encode()
+
+
+def test_reddit_search_uses_live_rss_when_json_is_blocked(make_ctx, run):
+    routes = {"search.rss": fetched(RSS), "reddit.com": fetched(b"<html>blocked</html>", status=403)}
+    ctx = make_ctx(routes)
+    hits = run(ctx.channel("reddit").search("uv python", since=NOW - timedelta(days=30)))
+    assert [h.title for h in hits] == ["uv is great"]  # subreddit result and out-of-window dropped
+    h = hits[0]
+    assert h.author == "op" and h.link == "https://astral.sh/uv" and h.snippet == "uv body"
+    assert "t=month" in next(u for u, _ in ctx.waterfall.calls if "search.rss" in u)
+    assert reddit.rss_window(None) == "all" and reddit.rss_window(NOW - timedelta(days=3)) == "week"
+
+
+def test_reddit_search_falls_back_to_pullpush(make_ctx, run):
+    routes = {"pullpush.io": {"data": [POST]}, "search.rss": fetched(b"", status=429)}
+    routes["reddit.com"] = fetched(b"<html>blocked</html>", status=403)
+    ctx = make_ctx(routes)
+    hits = run(ctx.channel("reddit").search("uv python", since=NOW - timedelta(days=30)))
+    assert hits[0].title == "uv is great" and hits[0].engagement["score"] == 12
+    assert not any("arctic-shift" in u for u, _ in ctx.waterfall.calls)
+
+
 # ---- fediverse ----------------------------------------------------------------------------------
 
 
