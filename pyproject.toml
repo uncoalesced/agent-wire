@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agent-wire"
+name = "agent-wire-cli"
 version = "0.2.1"
 description = "High-speed, privacy-first, token-compressed live web and multi-platform intelligence engine for AI agents."
 readme = "README.md"
@@ -38,6 +38,7 @@ dev = [
 [project.scripts]
 wire = "agent_wire.cli:app"
 agent-wire = "agent_wire.cli:app"
+agent-wire-cli = "agent_wire.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/uncoalesced/agent-wire"
