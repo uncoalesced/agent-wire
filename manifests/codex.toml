@@ -2,5 +2,5 @@
 # Codex Go plan / rate-limit saver: add "--profile", "local" to args.
 [mcp_servers.agent_wire]
 command = "uvx"
-args = ["agent-wire", "serve"]
+args = ["agent-wire-cli", "serve"]
 env = { WIRE_HOME = "~/.codex/.wire" }
