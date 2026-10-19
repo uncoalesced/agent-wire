@@ -373,7 +373,7 @@ def auth_login(
     try:
         n = asyncio.run(vault.interactive_login(site))
     except ImportError as e:
-        typer.echo("wire auth login needs the stealth extra: uv tool install 'agent-wire[stealth]' "
+        typer.echo("wire auth login needs the stealth extra: uv tool install 'agent-wire-cli[stealth]' "
                    "&& playwright install chromium", err=True)  # fmt: skip
         raise typer.Exit(1) from e
     typer.echo(f"saved {n} cookies for {site}" if n else f"no cookies captured for {site}")
