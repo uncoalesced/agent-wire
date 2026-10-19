@@ -72,10 +72,10 @@ def test_stocktwits(make_ctx, run):
 def test_devto_search(make_ctx, run):
     art = {"title": "Rust tips", "url": "https://dev.to/u/rust-tips", "published_at": NOW.isoformat(),
            "public_reactions_count": 50, "comments_count": 7, "user": {"username": "u"}}  # fmt: skip
-    ctx = make_ctx({"dev.to/api/articles": [art]})
+    ctx = make_ctx({"tag=rpt&": [], "tag=rustprogrammingtips&": [], "dev.to/api/articles": [art]})
     hits = run(ctx.channel("devto").search("rust programming tips"))
     assert hits[0].engagement == {"likes": 50, "comments": 7}
-    assert "tag=programming" in ctx.waterfall.calls[0][0]  # the longest topic word
+    assert "tag=programming" in ctx.waterfall.calls[-1][0]  # empty guesses -> longest topic word
 
 
 GN = """<?xml version="1.0"?><rss version="2.0"><channel><item><title>Big launch - The Outlet</title>
@@ -296,6 +296,25 @@ def test_install_auto_asks_first(tmp_path, monkeypatch):
     assert "nothing written" in r.output and not (tmp_path / ".cursor" / "mcp.json").exists()
     r = CliRunner().invoke(cli.app, ["install", "--project", str(tmp_path), "--yes"])
     assert r.exit_code == 0 and (tmp_path / ".cursor" / "mcp.json").exists()
+
+
+def test_devto_tries_acronym_then_joined_then_longest_word(make_ctx, run):
+    from agent_wire.channels.tier2_pro import devto
+
+    assert devto.tag_candidates("Model Context Protocol") == [
+        "mcp",
+        "modelcontextprotocol",
+        "protocol",
+    ]
+    assert devto.tag_candidates("OpenAI vs Anthropic") == ["openaianthropic", "anthropic"]
+    mcp = {"title": "Building an MCP server", "description": "tools", "url": "https://dev.to/a/1"}
+    ctx = make_ctx({"tag=mcp&": [mcp]})
+    hits = run(ctx.channel("devto").search("Model Context Protocol"))
+    assert hits[0].title == "Building an MCP server" and len(ctx.waterfall.calls) == 1
+    off = {"title": "Zip archives", "description": "compression", "url": "https://dev.to/a/2"}
+    ctx = make_ctx({"tag=rar&": [off], "tag=rustasyncruntime&": [], "tag=runtime&": [mcp]})
+    hits = run(ctx.channel("devto").search("rust async runtime"))
+    assert hits[0].url == "https://dev.to/a/1"  # off-topic acronym tag skipped
 
 
 def test_devto_tags_and_arxiv_html_search():
