@@ -578,7 +578,7 @@ def entities(title: str) -> set[str]:
     named = []
     for i, tok in enumerate(tokens):
         low = tok.lower()
-        if low in _COMMON or low in _TOPIC_STOP or len(tok) < 3 or tok.isdigit():
+        if low in _COMMON or low in _TOPIC_STOP or len(tok) < 3 or not any(map(str.isalpha, tok)):
             named.append(None)
             continue
         is_named = tok[0].isupper() and (i > 0 or not tok[1:].islower() or len(tokens) > 1)
@@ -605,13 +605,21 @@ def rising_topics(clusters: list[Cluster], now: datetime, n: int = 10) -> list[d
     def rank(g: str) -> float:
         return weight[g] * (1 + 0.5 * (len(where[g]) - 1)) * (1.2 if " " in g else 1.0)
 
-    out, used = [], []
+    out, used, stories = [], [], []
     for g in sorted(weight, key=lambda g: -rank(g)):
-        if len(examples[g]) < 2 and len(where[g]) < 2:
-            continue  # a phrase from one story on one site is that story, not a topic
+        if len(examples[g]) < 2:
+            continue  # a phrase from one story is that story (already in "Biggest stories")
         if any(g in u or u in g for u in used):
             continue
+        mine = {id(c) for c in examples[g]}
+        same = next((i for i, s in enumerate(stories) if len(mine & s) * 3 >= len(mine) * 2), None)
+        if same is not None:
+            if out[same]["topic"].count(" / ") < 2:  # "gemini" + "argon": the same stories
+                out[same]["topic"] += f" / {g}"
+            used.append(g)
+            continue
         used.append(g)
+        stories.append(mine)
         ex = sorted(examples[g], key=lambda c: -c.score)[:3]
         fresh = sum(1 for c in examples[g] if c.momentum(now) in ("new", "breaking"))
         label = ("rising" if fresh * 2 >= len(examples[g])
