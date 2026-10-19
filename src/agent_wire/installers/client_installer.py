@@ -56,12 +56,12 @@ def _body(md: str) -> str:
 
 
 def install_source() -> str | None:
-    """Where uvx should fetch agent-wire from, mirroring how it was installed (it isn't on PyPI yet).
+    """Where uvx should fetch agent-wire from, mirroring how it was installed (PyPI: agent-wire-cli).
 
     A local checkout -> its path; a git install -> `git+<url>[@rev]`; a registry install -> None.
     """
     try:
-        raw = metadata.distribution("agent-wire").read_text("direct_url.json")
+        raw = metadata.distribution("agent-wire-cli").read_text("direct_url.json")
     except metadata.PackageNotFoundError:
         return None
     info = json.loads(raw) if raw else {}
@@ -86,7 +86,7 @@ def server_entry(profile: str, wire_home: Path) -> dict:
     if src and not src.startswith("git+"):
         args = ["run", "--quiet", "--directory", src, "--frozen", "wire", "serve", *tail]
         return {"command": "uv", "args": args, "env": env}
-    args = (["--from", src] if src else []) + ["agent-wire", "serve", *tail]
+    args = (["--from", src] if src else []) + ["agent-wire-cli", "serve", *tail]
     return {"command": "uvx", "args": args, "env": env}
 
 
