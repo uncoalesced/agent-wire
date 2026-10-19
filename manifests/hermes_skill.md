@@ -15,7 +15,7 @@ Tools come from the `agent_wire` MCP server registered in `~/.hermes/config.yaml
 mcp_servers:
   agent_wire:
     command: uvx
-    args: ["agent-wire", "serve"]
+    args: ["agent-wire-cli", "serve"]
     env:
       WIRE_HOME: ~/.hermes/.wire
 ```
