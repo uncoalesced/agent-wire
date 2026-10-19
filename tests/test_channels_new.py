@@ -100,6 +100,33 @@ def test_google_news_and_techmeme(make_ctx, run):
         news.parse_rss_items(b"<html><body>nope")
 
 
+class FakePool:
+    def __init__(self, routes):
+        self.routes, self.calls = routes, []
+
+    async def get(self, url, **kw):
+        self.calls.append((url, kw))
+        return next(fetched(body, url=url) for k, body in self.routes.items() if k in url)
+
+
+def test_google_news_links_decode_to_the_publisher(make_ctx, run):
+    target = "https://outlet.example/story"
+    batch = ')]}\'\n\n[["wrb.fr","Fbv4je","[\\"garturlres\\",\\"' + target + '\\",1]",null]]'
+    assert news.parse_batch(batch) == target and news.parse_batch("junk") is None
+    page = b'<c-wiz><div data-n-a-sg="SIG" data-n-a-ts="1792418090"></div>'
+    ctx = make_ctx({"news.google.com": fetched(GN, ctype="application/xml"),
+                    "techmeme.com": fetched("<html>down</html>")})  # fmt: skip
+    ctx.pool = FakePool({"batchexecute": batch, "rss/articles/abc": page})
+    hits = run(ctx.channel("news").search("big launch"))
+    assert hits[0].url == target and hits[0].author == "The Outlet"
+    form = next(kw for u, kw in ctx.pool.calls if "batchexecute" in u)["data"]["f.req"]
+    assert '\\"abc\\", 1792418090, \\"SIG\\"' in form
+    ctx.pool = FakePool({"rss/articles/abc": b"<html>no signature</html>"})
+    assert run(ctx.channel("news").decode("https://news.google.com/rss/articles/abc")).endswith(
+        "/abc"
+    )
+
+
 # ---- reddit via Arctic Shift --------------------------------------------------------------------
 POST = {"id": "abc", "title": "uv is great", "score": 12, "num_comments": 1,
         "created_utc": int((NOW - timedelta(days=2)).timestamp()),
