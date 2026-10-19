@@ -1,7 +1,8 @@
 """Reddit: .json threads/listings (official app OAuth when configured, old.reddit mirror).
 
-When anonymous Reddit is blocked, reads fall back to the Arctic Shift archive (a free, volunteer
-API: small requests only, copies are captured shortly after posting so scores lag the live site).
+When anonymous .json is blocked, search tries Reddit's own search RSS (live, no scores), then the
+PullPush and Arctic Shift archives (free, volunteer APIs: small requests only, copies are captured
+shortly after posting so scores lag the live site). Thread reads fall back to Arctic Shift.
 """
 
 import asyncio
@@ -9,16 +10,19 @@ import base64
 import os
 import re
 import time
-from datetime import datetime
+import xml.etree.ElementTree as ET
+from datetime import UTC, datetime
 from urllib.parse import quote, urlencode, urlsplit
 
-from agent_wire.channels.base import Channel, WireUnsupported, listing, ts
+from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, ts
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.firewall.outbound_privacy import parse_json
 from agent_wire.models import WireComment, WireSearchHit
 
 WWW = "https://www.reddit.com"
 ARCTIC = "https://arctic-shift.photon-reddit.com/api"
+PULLPUSH = "https://api.pullpush.io/reddit/search/submission/"
+ATOM = "{http://www.w3.org/2005/Atom}"
 ARCTIC_NOTE = "Arctic Shift archive copy (scores/comments as captured, not live)"
 _STOP = frozenset({"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "vs",
                    "versus", "what", "is", "are", "how", "why", "best", "new"})  # fmt: skip
@@ -99,6 +103,34 @@ def post_hit(d: dict, archived: bool = False) -> WireSearchHit:
         engagement={"score": d.get("score") or 0, "comments": d.get("num_comments") or 0,
                     **({"archived": 1} if archived else {})},
     )  # fmt: skip
+
+
+def rss_hits(content: bytes) -> list[WireSearchHit]:
+    """Reddit search .rss (Atom): posts only (t3_), no score or comment counts in the feed."""
+    hits = []
+    for e in ET.fromstring(content).iter(f"{ATOM}entry"):
+        if not (e.findtext(f"{ATOM}id") or "").startswith("t3_"):
+            continue  # t5_ = subreddit results
+        link = e.find(f"{ATOM}link")
+        body = e.findtext(f"{ATOM}content") or ""
+        out = re.search(r'href="([^"]+)">\[link\]', body)
+        author = (e.findtext(f"{ATOM}author/{ATOM}name") or "").removeprefix("/u/")
+        hits.append(WireSearchHit(
+            url=link.get("href", "") if link is not None else "", title=e.findtext(f"{ATOM}title") or "",
+            snippet=html_text(body).split("submitted by")[0].strip()[:300], source="reddit",
+            timestamp=ts(e.findtext(f"{ATOM}published") or e.findtext(f"{ATOM}updated")),
+            author=author or None,
+            link=out.group(1) if out and "reddit.com" not in out.group(1) else None,
+        ))  # fmt: skip
+    return hits
+
+
+def rss_window(since: datetime | None) -> str:
+    if since is None:
+        return "all"
+    days = (datetime.now(UTC) - since).days
+    return next((t for n, t in ((1, "day"), (7, "week"), (31, "month"), (365, "year")) if days <= n),
+                "all")  # fmt: skip
 
 
 def _path(url: str) -> str:
@@ -183,10 +215,40 @@ class RedditChannel(Channel):
             data, _ = await self._json(
                 "/search", f"q={quote(query)}&sort={sort}&limit={limit}{window}"
             )
-        except WireFetchError:
-            return await self._arctic_search(query, limit, since)
+        except WireFetchError as blocked:
+            for fallback in (self._rss_search, self._pullpush_search, self._arctic_search):
+                try:
+                    if hits := await fallback(query, limit, since, sort):
+                        return hits
+                except (WireFetchError, ValueError, ET.ParseError):
+                    continue
+            raise WireFetchError(
+                f"reddit search: no results from any fallback. {BLOCKED_HINT}"
+            ) from blocked
         return [post_hit(ch.get("data", {})) for ch in data.get("data", {}).get("children", [])
                 if ch.get("kind") == "t3"][:limit]  # fmt: skip
+
+    async def _rss_search(self, query, limit, since, sort="relevance"):
+        """Live search via the .rss endpoint, which stays open when .json is blocked."""
+        params = urlencode({"q": query, "sort": sort, "t": rss_window(since), "type": "link",
+                            "limit": min(limit * 2, 25)})  # fmt: skip
+        f = await self.fetch(f"{WWW}/search.rss?{params}", archive=False)
+        if not f.ok:
+            raise WireFetchError(f"reddit search.rss: HTTP {f.status}")
+        hits = [
+            h for h in rss_hits(f.content) if not since or not h.timestamp or h.timestamp >= since
+        ]
+        return hits[:limit]
+
+    async def _pullpush_search(self, query, limit, since, sort="relevance"):
+        params = {"q": query, "size": min(limit * 2, 25), "sort_type": "score", "sort": "desc"}
+        if since:
+            params["after"] = int(since.timestamp())
+        data, _ = await self.fetch_json(f"{PULLPUSH}?{urlencode(params)}")
+        posts = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(posts, list):
+            raise WireFetchError("pullpush: no data")
+        return [post_hit(p, archived=True) for p in posts if p.get("permalink")][:limit]
 
     # ---- Arctic Shift fallback --------------------------------------------------------------
     async def _arctic(self, path: str, **params):
@@ -233,7 +295,7 @@ class RedditChannel(Channel):
                     found[name] = max(found.get(name, 0), sub.get("subscribers") or 0)
         return sorted(found, key=lambda k: -found[k])[:n]
 
-    async def _arctic_search(self, query, limit, since: datetime | None):
+    async def _arctic_search(self, query, limit, since: datetime | None, sort="relevance"):
         subs = await self.subreddits_for(query)
         if not subs:
             raise WireFetchError(f"reddit search: no matching subreddits found. {BLOCKED_HINT}")
