@@ -94,6 +94,8 @@ class DevToChannel(Channel):
 
     async def read(self, url, *, query=None, section=None, include_comments=True):
         parts = [p for p in urlsplit(url).path.split("/") if p]
+        if parts[:1] == ["t"] and len(parts) >= 2:  # /t/<tag>[/top/week]: the tag's feed
+            return await self.feed(parts[1])
         if len(parts) != 2:
             return await self.ctx.channel("web").read(url, query=query, section=section)
         a, f = await self.fetch_json(f"{API}/articles/{parts[0]}/{parts[1]}")
