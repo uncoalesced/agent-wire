@@ -320,7 +320,7 @@ class Wire:
             f"vault sessions: {', '.join(self.vault.domains()) or 'none (wire auth login <site>)'}",
             "browsers you can import a login from (wire auth login <site> --from-browser): "
             + (", ".join(sorted({s.browser for s in find_cookie_stores()})) or "none found"),
-            f"stage-4 browser: {'available' if self.browser.available() else 'not installed (pip install agent-wire[stealth])'}",
+            f"stage-4 browser: {'available' if self.browser.available() else 'not installed (pip install agent-wire-cli[stealth])'}",
             "route cache: " + (", ".join(f"{d}→stage {s}" for d, s in routes) or "empty"),
             f"session buffer: {len(self.buffer)} pages, {self.buffer.total_bytes // 1024} KB",
         ]  # fmt: skip
