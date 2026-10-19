@@ -74,7 +74,7 @@ PLATFORMS.update({name: name for name in MODULES if name != "web"})
 # `platforms=["all"]` fans out to the channels with fast, key-free search.
 ALL_PLATFORMS = ("web", "reddit", "hn", "github", "youtube", "stackoverflow", "wikipedia")
 
-_MASTODON_STATUS = re.compile(r"^/@[\w.]+(@[\w.-]+)?/\d+/?$")
+_MASTODON_STATUS = re.compile(r"^/@[\w.]+(@[\w.-]+)?(/\d+)?/?$")  # status or profile
 _FEED_PATH = re.compile(r"(\.rss|\.xml|\.atom|/feed/?|/rss/?|/atom/?)$", re.IGNORECASE)
 
 
