@@ -61,3 +61,31 @@ def test_rank_comments_prefers_signal():
     ids = [c.id for c in kept]
     assert "acc" in ids and "up" in ids
     assert ids.index("acc") < ids.index("up")  # original order
+
+
+def test_encoding_survives_a_concurrent_first_download(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from agent_wire.compression import bm25_slicer
+
+    monkeypatch.setenv("WIRE_HOME", str(tmp_path))
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    (tmp_path / "tiktoken").mkdir()
+    (tmp_path / "tiktoken" / "abc.123.tmp").write_bytes(b"partial")
+    calls = []
+
+    def racy(name):
+        calls.append(name)
+        if len(calls) == 1:
+            raise FileExistsError(
+                "[WinError 183] Cannot create a file when that file already exists"
+            )
+        return SimpleNamespace(name=name)  # offline: no real download
+
+    monkeypatch.setattr(bm25_slicer.tiktoken, "get_encoding", racy)
+    bm25_slicer._encoding.cache_clear()
+    try:
+        assert bm25_slicer._encoding().name == "o200k_base" and len(calls) == 2
+        assert not list((tmp_path / "tiktoken").glob("*.tmp"))
+    finally:
+        bm25_slicer._encoding.cache_clear()
