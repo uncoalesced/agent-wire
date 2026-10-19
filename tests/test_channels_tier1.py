@@ -44,6 +44,7 @@ from agent_wire.router import route_platform, route_url
         ("https://mastodon.social/@Gargron/112", "fediverse"),
         ("https://hachyderm.io/@someone@other.tld/1", "fediverse"),
         ("https://mastodon.social/@Gargron", "fediverse"),
+        ("https://news.google.com/rss/articles/CBMi?oc=5", "news"),
         ("https://example.com/@team/about", "web"),
         ("https://arxiv.org/abs/1706.03762", "arxiv"),
         ("https://www.bilibili.com/video/BV1xx", "bilibili"),
