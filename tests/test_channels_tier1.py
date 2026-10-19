@@ -43,6 +43,8 @@ from agent_wire.router import route_platform, route_url
         ("https://blog.example.com/feed/", "rss"),
         ("https://mastodon.social/@Gargron/112", "fediverse"),
         ("https://hachyderm.io/@someone@other.tld/1", "fediverse"),
+        ("https://mastodon.social/@Gargron", "fediverse"),
+        ("https://example.com/@team/about", "web"),
         ("https://arxiv.org/abs/1706.03762", "arxiv"),
         ("https://www.bilibili.com/video/BV1xx", "bilibili"),
         ("https://mp.weixin.qq.com/s/abc", "wechat"),
