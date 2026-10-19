@@ -1,11 +1,30 @@
-# agent-wire
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner-light.png">
+    <img alt="agent-wire: agents wired to the live internet. One MCP server, 31 platforms, local." src="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png" width="100%">
+  </picture>
+</p>
 
-Agents wired to the live internet.
+<p align="center">
+  <a href="https://pypi.org/project/agent-wire-cli/"><img alt="PyPI" src="https://img.shields.io/pypi/v/agent-wire-cli?color=f2913f"></a>
+  <a href="https://pypi.org/project/agent-wire-cli/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/agent-wire-cli?color=b0723f"></a>
+  <a href="https://github.com/uncoalesced/agent-wire/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/uncoalesced/agent-wire/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-f5b884"></a>
+</p>
 
-agent-wire gives an AI agent one MCP server for reading the web and 31 platforms: Reddit, X, GitHub, YouTube, Hacker News, Stack Overflow, arXiv, Polymarket, Bilibili and the rest. Pages come back as dense Markdown sized to a token budget, with your cookies and identity kept out of the model's context. It can also research a topic across all of them at once and hand back one cited brief of what people said in the last 30 days. It runs on your machine and needs no API keys for the common cases.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#last-30-days-research">Research</a> ·
+  <a href="#the-six-tools">Tools</a> ·
+  <a href="#channels">Channels</a> ·
+  <a href="#privacy-and-prompt-injection">Privacy</a>
+</p>
+
+agent-wire is one MCP server that lets an AI agent read the web and 31 platforms: Reddit, X, GitHub, YouTube, Hacker News, Stack Overflow, arXiv, Polymarket, Bilibili and the rest. Pages come back as dense Markdown cut to a token budget, and your cookies and identity stay out of the model's context. Ask it about a topic and it searches all of them at once, then hands back one cited brief of what people said in the last 30 days. It runs on your machine. The common cases need no API keys.
 
 > [!NOTE]
-> It's young. Until the first PyPI release, install it from this repo as shown below. Please open an issue when a site stops parsing.
+> It's young. If a site stops parsing, please open an issue with the URL.
 
 ## Why I built it
 
@@ -21,7 +40,11 @@ You need [uv](https://docs.astral.sh/uv/). Then install into whichever agent cli
 uvx agent-wire-cli install --client auto
 ```
 
-The package is `agent-wire-cli` on PyPI (`agent-wire` was too close to an existing name); the commands are still `wire`. To run the latest commit instead: `uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto`.
+On PyPI it's called `agent-wire-cli`, because PyPI thought `agent-wire` looked too much like an existing package. The command is still `wire`. For the latest commit instead of the latest release:
+
+```bash
+uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto
+```
 
 `auto` lists the clients it found and asks before writing; `--yes` skips the question. Or pick one: `claude-code`, `codex`, `hermes`, `antigravity`, `claude-desktop`, `cursor`, `windsurf`, `vscode`, `roo`, `gemini`, `peridot`, or `all`. Add `--global` for user-wide config and `--dry-run` to see what would change. Existing config files are merged rather than overwritten, and a file that isn't valid JSON or TOML is left alone.
 
@@ -165,10 +188,11 @@ Logins you add with `wire auth login <site>` live in an AES-GCM vault whose key 
 
 Some sites fight harder than others. These are the ones I know about:
 
-- Reddit blocks anonymous access from many networks. agent-wire then falls back to the [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive, a free volunteer API, for threads, subreddit listings and research. Its copies are captured shortly after posting, so scores and comment counts lag the live site, and it can be slow under load. For live data set `REDDIT_CLIENT_ID` (a free "installed app" at reddit.com/prefs/apps) or log in with `wire auth login reddit.com`.
+- Reddit blocks anonymous JSON from many networks. Search then uses Reddit's own search RSS, which is live but has no scores, and after that the [PullPush](https://pullpush.io) and [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archives. Threads and subreddit listings fall back to Arctic Shift. Both archives are free volunteer APIs. They capture posts shortly after they go up, so scores and comment counts lag the live site, and they slow down under load. For live data, set `REDDIT_CLIENT_ID` (a free "installed app" at reddit.com/prefs/apps) or log in with `wire auth login reddit.com`.
 - X replies, timelines and search need a logged-in session; single posts don't.
 - Cloudflare-protected pages, Zhihu, Xueqiu and Boss Zhipin often need the stage-4 browser: `uv tool install "agent-wire-cli[stealth]"` then `playwright install chromium`. It renders the page headlessly, waits for a JS challenge to clear, and keeps its profile and temp files in `WIRE_HOME`. Cloudflare ties its clearance cookie to the browser, so repeat visits to such a site render again (about 10 seconds each).
-- arXiv's export API is slow at times; search then falls back to arxiv.org's own search page and Semantic Scholar.
+- arXiv's export API sometimes stalls. After 8 seconds, search asks OpenAlex instead, then arxiv.org's own search page, then Semantic Scholar.
+- Google News links are JavaScript redirects. agent-wire resolves them to the publisher's URL, so briefs link to the actual article.
 - TikTok is unreachable from countries that block it.
 
 ## Configuration
@@ -200,3 +224,7 @@ Releases are published to PyPI by `.github/workflows/release.yml` when a `v*` ta
 ## License
 
 [MIT](LICENSE)
+
+<p align="center">
+  <img alt="" src="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-logo-transparent.png" width="72">
+</p>
