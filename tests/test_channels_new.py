@@ -377,3 +377,21 @@ def test_arxiv_search_falls_back_to_openalex(make_ctx, run, monkeypatch):
     assert h.timestamp == datetime(2026, 7, 23, tzinfo=UTC) and h.engagement == {"citations": 46}
     assert "S4306400194" in next(u for u, _ in ctx.waterfall.calls if "openalex" in u)
     assert arxiv_papers.openalex_hit({"locations": []}) is None
+
+
+def test_front_pages_and_tag_pages_read_as_listings(make_ctx, run):
+    story = {"title": "Borrow checking", "short_id_url": "https://lobste.rs/s/x", "score": 9,
+             "comment_count": 2, "tags": ["rust"]}  # fmt: skip
+    ctx = make_ctx({"lobste.rs/hottest.json": [story], "lobste.rs/t/rust.json": [story]})
+    assert "Borrow checking" in run(ctx.channel("hackernews").read("https://lobste.rs/")).body
+    doc = run(ctx.channel("hackernews").read("https://lobste.rs/t/rust"))
+    assert doc.title == "Lobsters · t/rust" and "▲9" in doc.body
+    art = {"title": "Py tips", "url": "https://dev.to/u/py", "public_reactions_count": 3,
+           "comments_count": 1, "user": {"username": "u"}}  # fmt: skip
+    ctx = make_ctx({"tag=python&": [art]})
+    assert "Py tips" in run(ctx.channel("devto").read("https://dev.to/t/python")).body
+    post = {"title": "x", "url": "/r/AskNYC/comments/1/x/", "is_self": False, "author": "a"}
+    body = reddit.parse_thread(
+        [{"data": {"children": [{"data": post}]}}, {"data": {"children": []}}]
+    )
+    assert "Link: https://www.reddit.com/r/AskNYC/comments/1/x/" in body["body"]
