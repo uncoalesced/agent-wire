@@ -1,6 +1,6 @@
 {
   "name": "agent-wire",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Live web and 31-platform access for agents: token-compressed, privacy-firewalled, injection-shielded. Auto-triggers on links and live questions.",
   "author": {
     "name": "uncoalesced"
