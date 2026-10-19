@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agent-wire"
+name = "agent-wire-cli"
 version = "0.2.1"
 source = { editable = "." }
 dependencies = [
