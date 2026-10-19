@@ -149,6 +149,14 @@ def test_entities_and_rising_topics():
     topics = rising_topics(cluster(items), NOW)
     assert topics[0]["topic"] == "opencode" and topics[0]["momentum"] == "rising"
     assert not any("notre" in t["topic"] for t in topics)  # sports markets don't make topics
+    assert "5.5" not in entities("Claude Opus 5.5") and "opus" in entities("Claude Opus 5.5")
+    rows = [("Gemini 4 Argon", "hackernews"), ("Gemini 4 Argon beats Minecraft", "news"),
+            ("Niko1221/Strata", "github"), ("Opus 5.5 nerfed?", "hackernews"),
+            ("Haiku 5.5 out", "hackernews")]  # fmt: skip
+    items = [Item(hit(t, f"https://f/{n}", source=s, when=ago(hours=6), score=100), score=0.5)
+             for n, (t, s) in enumerate(rows)]  # fmt: skip
+    names = [t["topic"] for t in rising_topics(cluster(items), NOW)]
+    assert names in (["gemini / argon"], ["argon / gemini"])  # one topic; no "5.5", no strata
 
 
 # ---- engine (offline, faked network) ------------------------------------------------------------

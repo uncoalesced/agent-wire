@@ -166,7 +166,10 @@ def test_install_source_mirrors_how_it_was_installed(monkeypatch, direct_url, ex
         ]
     else:
         assert entry["command"] == "uvx"
-        assert entry["args"] == (["--from", expected] if expected else []) + ["agent-wire", "serve"]
+        assert entry["args"] == (["--from", expected] if expected else []) + [
+            "agent-wire-cli",
+            "serve",
+        ]
 
 
 def test_unknown_client(dirs):

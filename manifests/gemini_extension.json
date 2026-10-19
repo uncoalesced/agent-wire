@@ -1,12 +1,12 @@
 {
   "name": "agent-wire",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Live web and platform access: token-compressed, privacy-firewalled, injection-shielded.",
   "contextFileName": "GEMINI.md",
   "mcpServers": {
     "agent_wire": {
       "command": "uvx",
-      "args": ["agent-wire", "serve"],
+      "args": ["agent-wire-cli", "serve"],
       "env": {
         "WIRE_HOME": "~/.gemini/extensions/agent-wire/.wire"
       }

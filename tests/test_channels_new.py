@@ -72,10 +72,10 @@ def test_stocktwits(make_ctx, run):
 def test_devto_search(make_ctx, run):
     art = {"title": "Rust tips", "url": "https://dev.to/u/rust-tips", "published_at": NOW.isoformat(),
            "public_reactions_count": 50, "comments_count": 7, "user": {"username": "u"}}  # fmt: skip
-    ctx = make_ctx({"dev.to/api/articles": [art]})
+    ctx = make_ctx({"tag=rpt&": [], "tag=rustprogrammingtips&": [], "dev.to/api/articles": [art]})
     hits = run(ctx.channel("devto").search("rust programming tips"))
     assert hits[0].engagement == {"likes": 50, "comments": 7}
-    assert "tag=programming" in ctx.waterfall.calls[0][0]  # the longest topic word
+    assert "tag=programming" in ctx.waterfall.calls[-1][0]  # empty guesses -> longest topic word
 
 
 GN = """<?xml version="1.0"?><rss version="2.0"><channel><item><title>Big launch - The Outlet</title>
@@ -98,6 +98,33 @@ def test_google_news_and_techmeme(make_ctx, run):
     assert "when%3A7d" in ctx.waterfall.calls[0][0]
     with pytest.raises(WireUnsupported):
         news.parse_rss_items(b"<html><body>nope")
+
+
+class FakePool:
+    def __init__(self, routes):
+        self.routes, self.calls = routes, []
+
+    async def get(self, url, **kw):
+        self.calls.append((url, kw))
+        return next(fetched(body, url=url) for k, body in self.routes.items() if k in url)
+
+
+def test_google_news_links_decode_to_the_publisher(make_ctx, run):
+    target = "https://outlet.example/story"
+    batch = ')]}\'\n\n[["wrb.fr","Fbv4je","[\\"garturlres\\",\\"' + target + '\\",1]",null]]'
+    assert news.parse_batch(batch) == target and news.parse_batch("junk") is None
+    page = b'<c-wiz><div data-n-a-sg="SIG" data-n-a-ts="1792418090"></div>'
+    ctx = make_ctx({"news.google.com": fetched(GN, ctype="application/xml"),
+                    "techmeme.com": fetched("<html>down</html>")})  # fmt: skip
+    ctx.pool = FakePool({"batchexecute": batch, "rss/articles/abc": page})
+    hits = run(ctx.channel("news").search("big launch"))
+    assert hits[0].url == target and hits[0].author == "The Outlet"
+    form = next(kw for u, kw in ctx.pool.calls if "batchexecute" in u)["data"]["f.req"]
+    assert '\\"abc\\", 1792418090, \\"SIG\\"' in form
+    ctx.pool = FakePool({"rss/articles/abc": b"<html>no signature</html>"})
+    assert run(ctx.channel("news").decode("https://news.google.com/rss/articles/abc")).endswith(
+        "/abc"
+    )
 
 
 # ---- reddit via Arctic Shift --------------------------------------------------------------------
@@ -154,6 +181,41 @@ def test_reddit_arctic_retries_once_then_explains(make_ctx, run, monkeypatch):
     assert sum("posts/ids" in u for u, _ in ctx.waterfall.calls) == 2
 
 
+RSS = f"""<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">
+<entry><id>t5_sub</id><title>python</title><link href="https://www.reddit.com/r/python/"/></entry>
+<entry><author><name>/u/op</name></author><category term="Python"/><id>t3_abc</id>
+<content type="html">&lt;div class="md"&gt;&lt;p&gt;uv body&lt;/p&gt;&lt;/div&gt; submitted by
+&lt;a href="https://www.reddit.com/user/op"&gt;/u/op&lt;/a&gt;
+&lt;span&gt;&lt;a href="https://astral.sh/uv"&gt;[link]&lt;/a&gt;&lt;/span&gt;</content>
+<link href="https://www.reddit.com/r/Python/comments/abc/uv_is_great/"/>
+<published>{NOW.isoformat()}</published><title>uv is great</title></entry>
+<entry><id>t3_old</id><title>old</title><link href="https://www.reddit.com/r/Python/comments/old/"/>
+<published>{(NOW - timedelta(days=90)).isoformat()}</published></entry></feed>""".encode()
+
+
+def test_reddit_search_uses_live_rss_when_json_is_blocked(make_ctx, run):
+    routes = {
+        "search.rss": fetched(RSS),
+        "reddit.com": fetched(b"<html>blocked</html>", status=403),
+    }
+    ctx = make_ctx(routes)
+    hits = run(ctx.channel("reddit").search("uv python", since=NOW - timedelta(days=30)))
+    assert [h.title for h in hits] == ["uv is great"]  # subreddit result and out-of-window dropped
+    h = hits[0]
+    assert h.author == "op" and h.link == "https://astral.sh/uv" and h.snippet == "uv body"
+    assert "t=month" in next(u for u, _ in ctx.waterfall.calls if "search.rss" in u)
+    assert reddit.rss_window(None) == "all" and reddit.rss_window(NOW - timedelta(days=3)) == "week"
+
+
+def test_reddit_search_falls_back_to_pullpush(make_ctx, run):
+    routes = {"pullpush.io": {"data": [POST]}, "search.rss": fetched(b"", status=429)}
+    routes["reddit.com"] = fetched(b"<html>blocked</html>", status=403)
+    ctx = make_ctx(routes)
+    hits = run(ctx.channel("reddit").search("uv python", since=NOW - timedelta(days=30)))
+    assert hits[0].title == "uv is great" and hits[0].engagement["score"] == 12
+    assert not any("arctic-shift" in u for u, _ in ctx.waterfall.calls)
+
+
 # ---- fediverse ----------------------------------------------------------------------------------
 
 
@@ -170,6 +232,22 @@ def test_bluesky_hits_and_mastodon_tag(make_ctx, run):
     m = run(ctx.channel("fediverse").mastodon_tag("#python!"))
     assert m[0].source == "mastodon" and m[0].snippet == "py"
     assert fediverse.BSKY == "https://api.bsky.app/xrpc"
+
+
+def test_mastodon_profile_url_reads_account_feed_else_web(make_ctx, run):
+    toot = {
+        "url": "https://m.s/@u/1",
+        "content": "<p>hello fedi</p>",
+        "created_at": NOW.isoformat(),
+    }
+    ctx = make_ctx({"accounts/lookup?acct=u": {"id": "9"}, "accounts/9/statuses": [toot]})
+    doc = run(ctx.channel("fediverse").read("https://m.s/@u"))
+    assert doc.title == "@u@m.s" and "hello fedi" in doc.body
+    page = fetched(b"<html><title>Team</title><body><p>We are the team.</p></body></html>",
+                   url="https://example.org/@team", ctype="text/html")  # fmt: skip
+    ctx = make_ctx({"api/v1/accounts": fetched(b"<html>nope</html>"), "example.org": page})
+    doc = run(ctx.channel("fediverse").read("https://example.org/@team"))
+    assert "the team" in doc.body  # not a Mastodon host: plain web read
 
 
 # ---- github person mode -------------------------------------------------------------------------
@@ -247,6 +325,25 @@ def test_install_auto_asks_first(tmp_path, monkeypatch):
     assert r.exit_code == 0 and (tmp_path / ".cursor" / "mcp.json").exists()
 
 
+def test_devto_tries_acronym_then_joined_then_longest_word(make_ctx, run):
+    from agent_wire.channels.tier2_pro import devto
+
+    assert devto.tag_candidates("Model Context Protocol") == [
+        "mcp",
+        "modelcontextprotocol",
+        "protocol",
+    ]
+    assert devto.tag_candidates("OpenAI vs Anthropic") == ["openaianthropic", "anthropic"]
+    mcp = {"title": "Building an MCP server", "description": "tools", "url": "https://dev.to/a/1"}
+    ctx = make_ctx({"tag=mcp&": [mcp]})
+    hits = run(ctx.channel("devto").search("Model Context Protocol"))
+    assert hits[0].title == "Building an MCP server" and len(ctx.waterfall.calls) == 1
+    off = {"title": "Zip archives", "description": "compression", "url": "https://dev.to/a/2"}
+    ctx = make_ctx({"tag=rar&": [off], "tag=rustasyncruntime&": [], "tag=runtime&": [mcp]})
+    hits = run(ctx.channel("devto").search("rust async runtime"))
+    assert hits[0].url == "https://dev.to/a/1"  # off-topic acronym tag skipped
+
+
 def test_devto_tags_and_arxiv_html_search():
     from agent_wire.channels.tier2_pro import arxiv_papers, devto
 
@@ -261,3 +358,40 @@ def test_devto_tags_and_arxiv_html_search():
     h = arxiv_papers.parse_search_html(html)[0]
     assert h.title == "Diffusion LMs" and h.author == "Ann, Bo" and h.snippet == "We study things."
     assert h.timestamp == datetime(2026, 10, 15, tzinfo=UTC)
+
+
+def test_arxiv_search_falls_back_to_openalex(make_ctx, run, monkeypatch):
+    from agent_wire.channels.tier2_pro import arxiv_papers
+
+    work = {"title": "Masked Diffusion LMs", "publication_date": "2026-07-23", "cited_by_count": 46,
+            "authorships": [{"author": {"display_name": "Ann"}}],
+            "locations": [{"landing_page_url": "https://doi.org/x"},
+                          {"landing_page_url": "http://arxiv.org/abs/2406.07524"}],
+            "abstract_inverted_index": {"We": [0], "diffuse.": [2], "text": [1]}}  # fmt: skip
+    ctx = make_ctx(
+        {"export.arxiv.org": fetched(b"", status=429), "api.openalex.org": {"results": [work]}}
+    )
+    hits = run(ctx.channel("arxiv").search("diffusion language models"))
+    h = hits[0]
+    assert h.url == "https://arxiv.org/abs/2406.07524" and h.snippet == "We text diffuse."
+    assert h.timestamp == datetime(2026, 7, 23, tzinfo=UTC) and h.engagement == {"citations": 46}
+    assert "S4306400194" in next(u for u, _ in ctx.waterfall.calls if "openalex" in u)
+    assert arxiv_papers.openalex_hit({"locations": []}) is None
+
+
+def test_front_pages_and_tag_pages_read_as_listings(make_ctx, run):
+    story = {"title": "Borrow checking", "short_id_url": "https://lobste.rs/s/x", "score": 9,
+             "comment_count": 2, "tags": ["rust"]}  # fmt: skip
+    ctx = make_ctx({"lobste.rs/hottest.json": [story], "lobste.rs/t/rust.json": [story]})
+    assert "Borrow checking" in run(ctx.channel("hackernews").read("https://lobste.rs/")).body
+    doc = run(ctx.channel("hackernews").read("https://lobste.rs/t/rust"))
+    assert doc.title == "Lobsters · t/rust" and "▲9" in doc.body
+    art = {"title": "Py tips", "url": "https://dev.to/u/py", "public_reactions_count": 3,
+           "comments_count": 1, "user": {"username": "u"}}  # fmt: skip
+    ctx = make_ctx({"tag=python&": [art]})
+    assert "Py tips" in run(ctx.channel("devto").read("https://dev.to/t/python")).body
+    post = {"title": "x", "url": "/r/AskNYC/comments/1/x/", "is_self": False, "author": "a"}
+    body = reddit.parse_thread(
+        [{"data": {"children": [{"data": post}]}}, {"data": {"children": []}}]
+    )
+    assert "Link: https://www.reddit.com/r/AskNYC/comments/1/x/" in body["body"]

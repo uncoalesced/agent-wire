@@ -84,8 +84,10 @@ class PolymarketChannel(Channel):
 
     async def read(self, url, *, query=None, section=None, include_comments=True):
         parts = [p for p in urlsplit(url).path.split("/") if p]
+        if not parts:  # the front page: trending markets
+            return await self.feed("trending")
         if len(parts) < 2 or parts[0] not in ("event", "market"):
-            raise WireUnsupported("polymarket: only /event/<slug> URLs")
+            raise WireUnsupported("polymarket: only /event/<slug> URLs and the front page")
         data, f = await self.fetch_json(f"{GAMMA}/events?slug={quote(parts[1])}")
         if not data:
             raise WireUnsupported(f"polymarket: no event {parts[1]!r}")

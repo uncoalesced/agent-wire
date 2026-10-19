@@ -22,8 +22,17 @@ _HEADING_ONLY = re.compile(r"#{1,6}\s+[^\n]*")
 @cache
 def _encoding() -> tiktoken.Encoding:
     # tiktoken caches its BPE file in the OS temp dir by default; keep it in WIRE_HOME instead.
-    os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(init_wire_home() / "tiktoken"))
-    return tiktoken.get_encoding("o200k_base")
+    cache_dir = init_wire_home() / "tiktoken"
+    os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(cache_dir))
+    try:
+        return tiktoken.get_encoding("o200k_base")
+    except FileExistsError:
+        # Several first runs at once (clients starting their servers together) each download the
+        # file and rename it into place; on Windows the losers' rename fails. The winner's copy is
+        # there now, so read it, and drop the losers' temp files.
+        for tmp in cache_dir.glob("*.tmp"):
+            tmp.unlink(missing_ok=True)
+        return tiktoken.get_encoding("o200k_base")
 
 
 def count_tokens(text: str) -> int:

@@ -18,8 +18,10 @@ agent-wire is one warm async Python process instead. Routing, bot walls, logins,
 You need [uv](https://docs.astral.sh/uv/). Then install into whichever agent clients it finds in the current project and your home folder:
 
 ```bash
-uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto
+uvx agent-wire-cli install --client auto
 ```
+
+The package is `agent-wire-cli` on PyPI (`agent-wire` was too close to an existing name); the commands are still `wire`. To run the latest commit instead: `uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto`.
 
 `auto` lists the clients it found and asks before writing; `--yes` skips the question. Or pick one: `claude-code`, `codex`, `hermes`, `antigravity`, `claude-desktop`, `cursor`, `windsurf`, `vscode`, `roo`, `gemini`, `peridot`, or `all`. Add `--global` for user-wide config and `--dry-run` to see what would change. Existing config files are merged rather than overwritten, and a file that isn't valid JSON or TOML is left alone.
 
@@ -165,7 +167,7 @@ Some sites fight harder than others. These are the ones I know about:
 
 - Reddit blocks anonymous access from many networks. agent-wire then falls back to the [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) archive, a free volunteer API, for threads, subreddit listings and research. Its copies are captured shortly after posting, so scores and comment counts lag the live site, and it can be slow under load. For live data set `REDDIT_CLIENT_ID` (a free "installed app" at reddit.com/prefs/apps) or log in with `wire auth login reddit.com`.
 - X replies, timelines and search need a logged-in session; single posts don't.
-- Cloudflare-protected pages, Zhihu, Xueqiu and Boss Zhipin often need the stage-4 browser: `uv tool install "agent-wire[stealth]"` then `playwright install chromium`. It renders the page headlessly, waits for a JS challenge to clear, and keeps its profile and temp files in `WIRE_HOME`. Cloudflare ties its clearance cookie to the browser, so repeat visits to such a site render again (about 10 seconds each).
+- Cloudflare-protected pages, Zhihu, Xueqiu and Boss Zhipin often need the stage-4 browser: `uv tool install "agent-wire-cli[stealth]"` then `playwright install chromium`. It renders the page headlessly, waits for a JS challenge to clear, and keeps its profile and temp files in `WIRE_HOME`. Cloudflare ties its clearance cookie to the browser, so repeat visits to such a site render again (about 10 seconds each).
 - arXiv's export API is slow at times; search then falls back to arxiv.org's own search page and Semantic Scholar.
 - TikTok is unreachable from countries that block it.
 
@@ -179,7 +181,7 @@ Everything works without configuration. These are optional:
 | `GITHUB_TOKEN` | Higher GitHub rate limits and `wire_me github`. `gh auth token` is used automatically if it's set up. |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | Reddit's official app login for networks where anonymous access is blocked. |
 | `WIRE_SEARXNG_URL`, `EXA_API_KEY` | Extra web search engines. |
-| `WIRE_TRANSCRIBE=1` | Transcribe podcast audio, either locally with `agent-wire[local-whisper]` or through an OpenAI-compatible API (`WIRE_TRANSCRIBE_API_KEY`, `WIRE_TRANSCRIBE_URL`, `WIRE_TRANSCRIBE_MODEL`). The API route uploads the audio, so it's opt-in. |
+| `WIRE_TRANSCRIBE=1` | Transcribe podcast audio, either locally with `agent-wire-cli[local-whisper]` or through an OpenAI-compatible API (`WIRE_TRANSCRIBE_API_KEY`, `WIRE_TRANSCRIBE_URL`, `WIRE_TRANSCRIBE_MODEL`). The API route uploads the audio, so it's opt-in. |
 
 ## Development
 

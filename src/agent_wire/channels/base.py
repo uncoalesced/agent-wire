@@ -110,7 +110,8 @@ def listing(items: list[dict]) -> str:
     lines = []
     for i, it in enumerate(items, 1):
         bits = [b for b in (it.get("meta") or ()) if b not in (None, "")]
-        head = f"{i}. [{it.get('title') or it.get('url')}]({it.get('url')})"
+        title = " ".join(str(it.get("title") or it.get("url")).split())  # newlines break the link
+        head = f"{i}. [{title}]({it.get('url')})"
         lines.append(head + (f" · {' · '.join(map(str, bits))}" if bits else ""))
         if snippet := (it.get("snippet") or "").strip():
             lines.append("   " + " ".join(snippet.split())[:280])

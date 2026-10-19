@@ -9,7 +9,7 @@ DOMAINS = {
     # tier 1
     "reddit.com": "reddit", "redd.it": "reddit",
     "x.com": "x", "twitter.com": "x", "fxtwitter.com": "x", "vxtwitter.com": "x", "fixupx.com": "x",
-    "github.com": "github", "githubusercontent.com": "github",
+    "github.com": "github", "githubusercontent.com": "github", "news.google.com": "news",
     "youtube.com": "youtube", "youtu.be": "youtube", "youtube-nocookie.com": "youtube",
     "news.ycombinator.com": "hackernews", "lobste.rs": "hackernews",
     "stackoverflow.com": "stackoverflow", "stackexchange.com": "stackoverflow",
@@ -74,7 +74,7 @@ PLATFORMS.update({name: name for name in MODULES if name != "web"})
 # `platforms=["all"]` fans out to the channels with fast, key-free search.
 ALL_PLATFORMS = ("web", "reddit", "hn", "github", "youtube", "stackoverflow", "wikipedia")
 
-_MASTODON_STATUS = re.compile(r"^/@[\w.]+(@[\w.-]+)?/\d+/?$")
+_MASTODON_STATUS = re.compile(r"^/@[\w.]+(@[\w.-]+)?(/\d+)?/?$")  # status or profile
 _FEED_PATH = re.compile(r"(\.rss|\.xml|\.atom|/feed/?|/rss/?|/atom/?)$", re.IGNORECASE)
 
 

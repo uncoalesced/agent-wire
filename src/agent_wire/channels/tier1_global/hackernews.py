@@ -67,8 +67,17 @@ class HackerNewsChannel(Channel):
         parts = urlsplit(url)
         if (parts.hostname or "").endswith("lobste.rs"):
             m = re.match(r"/s/(\w+)", parts.path)
+            page = re.fullmatch(r"/?(hottest|newest|active|t/[\w,]+)?/?", parts.path)
+            if not m and page:  # front page, newest, active or a tag: its JSON listing
+                data, f = await self.fetch_json(f"https://lobste.rs/{page[1] or 'hottest'}.json")
+                items = [{"title": s.get("title"), "url": s.get("short_id_url") or s.get("comments_url"),
+                          "meta": [f"▲{s.get('score', 0)}", f"{s.get('comment_count', 0)} comments",
+                                   ", ".join(s.get("tags") or [])]} for s in data]  # fmt: skip
+                return self.doc(
+                    f, url, title=f"Lobsters · {page[1] or 'hottest'}", body=listing(items)
+                )
             if not m:
-                raise WireUnsupported("lobsters: only /s/<id> story URLs")
+                return await self.ctx.channel("web").read(url, query=query, section=section)
             data, f = await self.fetch_json(f"https://lobste.rs/s/{m[1]}.json")
             return self.doc(f, url, **parse_lobsters(data))
         item_id = parse_qs(parts.query).get("id", [""])[0]

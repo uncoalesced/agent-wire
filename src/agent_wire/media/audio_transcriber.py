@@ -35,7 +35,7 @@ async def transcribe(pool: HttpPool, audio_url: str) -> str:
     kind = backend()
     if not kind:
         raise TranscriptionUnavailable(
-            "install agent-wire[local-whisper] or set WIRE_TRANSCRIBE_API_KEY for an OpenAI-compatible API"
+            "install agent-wire-cli[local-whisper] or set WIRE_TRANSCRIBE_API_KEY for an OpenAI-compatible API"
         )
     f = await pool.get(audio_url, impersonate=None, timeout=300)
     if not f.ok or len(f.content) > MAX_AUDIO_BYTES:

@@ -1,7 +1,7 @@
 ---
 name: agent-wire
 description: Live web and platform access (Reddit, X, GitHub, YouTube, HN, StackOverflow, arXiv, markets, Bilibili, Xiaohongshu). Use whenever the user shares a URL, asks about live facts or community opinion, or about their own social account activity.
-version: 0.2.0
+version: 0.2.1
 metadata:
   hermes:
     tags: [web, search, research, social]
@@ -15,7 +15,7 @@ Tools come from the `agent_wire` MCP server registered in `~/.hermes/config.yaml
 mcp_servers:
   agent_wire:
     command: uvx
-    args: ["agent-wire", "serve"]
+    args: ["agent-wire-cli", "serve"]
     env:
       WIRE_HOME: ~/.hermes/.wire
 ```

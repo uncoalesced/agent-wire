@@ -5,17 +5,33 @@ from datetime import UTC, datetime
 from urllib.parse import quote, urlsplit
 
 from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, listing, ts
+from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.models import WireComment, WireSearchHit
 
 API = "https://dev.to/api"
 
 
+_STOP = frozenset({"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "vs",
+                   "versus", "what", "is", "are", "how", "why", "best", "new"})  # fmt: skip
+
+
 def tag_of(text: str) -> str:
     """dev.to tags are single lower-case alphanumeric words; use the longest topic word."""
-    words = re.findall(r"[a-z0-9]+", text.lower())
+    return tag_candidates(text)[-1]
+
+
+def tag_candidates(text: str) -> list[str]:
+    """Most to least specific: acronym ('model context protocol' -> mcp), joined words, longest word."""
+    words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _STOP]
     if not words:
         raise WireUnsupported("devto: give a topic word, e.g. 'rust' or 'webdev'")
-    return max(words, key=len)
+    out = []
+    if 2 < len(words) < 6:
+        out.append("".join(w[0] for w in words))
+    if len(words) > 1 and len(joined := "".join(words)) <= 30:
+        out.append(joined)
+    out.append(max(words, key=len))
+    return list(dict.fromkeys(out))
 
 
 def article_hit(a: dict) -> WireSearchHit:
@@ -47,10 +63,24 @@ class DevToChannel(Channel):
 
     async def search(self, query, *, limit=5, sort="relevance", since=None):
         days = 30 if since is None else max(1, (datetime.now(UTC) - since).days)
-        data, _ = await self.fetch_json(
-            f"{API}/articles?tag={quote(tag_of(query))}&top={days}&per_page={limit}"
-        )
-        return [article_hit(a) for a in data[:limit]]
+        words = {w for w in re.findall(r"[a-z0-9]+", query.lower()) if w not in _STOP}
+        tags = tag_candidates(query)
+        for tag in tags:
+            last = tag == tags[-1]
+            try:
+                data, _ = await self.fetch_json(
+                    f"{API}/articles?tag={quote(tag)}&top={days}&per_page={limit}"
+                )
+            except (WireFetchError, ValueError):
+                if last:
+                    raise
+                continue
+            text = set(re.findall(r"[a-z0-9]+", " ".join(
+                f"{a.get('title')} {a.get('description')}" for a in data).lower()))  # fmt: skip
+            # a guessed tag must bring on-topic articles; the last (plain word) tag is taken as is
+            if last or (data and (tag in text or len(words & text) > 1)):
+                return [article_hit(a) for a in data[:limit]]
+        return []
 
     async def feed(self, target, *, sort="hot", limit=10):
         tag = tag_of(target)
@@ -64,6 +94,8 @@ class DevToChannel(Channel):
 
     async def read(self, url, *, query=None, section=None, include_comments=True):
         parts = [p for p in urlsplit(url).path.split("/") if p]
+        if parts[:1] == ["t"] and len(parts) >= 2:  # /t/<tag>[/top/week]: the tag's feed
+            return await self.feed(parts[1])
         if len(parts) != 2:
             return await self.ctx.channel("web").read(url, query=query, section=section)
         a, f = await self.fetch_json(f"{API}/articles/{parts[0]}/{parts[1]}")

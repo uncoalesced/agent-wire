@@ -3,6 +3,7 @@
 from urllib.parse import quote, urlsplit
 
 from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, listing, ts
+from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.models import WireComment, WireSearchHit
 
 BSKY = "https://api.bsky.app/xrpc"  # public.api.bsky.app 403s searchPosts for anonymous callers
@@ -71,6 +72,12 @@ class FediverseChannel(Channel):
             raise WireUnsupported("bluesky: expected /profile/<handle>[/post/<id>]")
         if segs and segs[0].startswith("@") and len(segs) > 1 and segs[1].isdigit():
             return await self._mastodon(url, f"https://{p.hostname}", segs[1], include_comments)
+        if len(segs) == 1 and segs[0].startswith("@"):  # profile; may not be a Mastodon host
+            who = segs[0] if "@" in segs[0][1:] else f"{segs[0]}@{p.hostname}"
+            try:
+                return await self.feed(who)
+            except (WireFetchError, ValueError, KeyError, TypeError):
+                pass
         return await self.ctx.channel("web").read(url, query=query, section=section)
 
     async def _did(self, actor: str) -> str:
