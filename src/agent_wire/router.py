@@ -9,7 +9,7 @@ DOMAINS = {
     # tier 1
     "reddit.com": "reddit", "redd.it": "reddit",
     "x.com": "x", "twitter.com": "x", "fxtwitter.com": "x", "vxtwitter.com": "x", "fixupx.com": "x",
-    "github.com": "github", "githubusercontent.com": "github",
+    "github.com": "github", "githubusercontent.com": "github", "news.google.com": "news",
     "youtube.com": "youtube", "youtu.be": "youtube", "youtube-nocookie.com": "youtube",
     "news.ycombinator.com": "hackernews", "lobste.rs": "hackernews",
     "stackoverflow.com": "stackoverflow", "stackexchange.com": "stackoverflow",
