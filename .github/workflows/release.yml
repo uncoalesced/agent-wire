@@ -1,7 +1,7 @@
 name: release
 
 # Push a tag like v0.2.0 to publish. One-time setup on pypi.org (no token stored here):
-# Account -> Publishing -> add a "pending publisher" for project agent-wire,
+# Account -> Publishing -> add a "pending publisher" for project agent-wire-cli,
 # owner uncoalesced, repository agent-wire, workflow release.yml, environment pypi.
 on:
   push:
