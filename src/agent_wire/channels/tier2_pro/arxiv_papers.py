@@ -1,7 +1,9 @@
 """arXiv: full paper as Markdown (arxiv.org/html, ar5iv), abstract fallback, Semantic Scholar stats."""
 
+import asyncio
 import re
 import xml.etree.ElementTree as ET
+from datetime import UTC
 from urllib.parse import quote, urlsplit
 
 from curl_cffi.requests.exceptions import RequestException
@@ -13,6 +15,33 @@ from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.models import WireSearchHit
 
 API = "https://export.arxiv.org/api/query"
+EXPORT_BUDGET_S = 8  # past this OpenAlex / the arxiv.org search page answer faster
+OPENALEX = "https://api.openalex.org/works"
+OPENALEX_ARXIV = "S4306400194"  # OpenAlex source id of arXiv
+
+
+def _abstract(inverted: dict | None) -> str:
+    """OpenAlex ships abstracts as {word: [positions]}."""
+    pos = sorted((i, w) for w, idx in (inverted or {}).items() for i in idx)
+    return " ".join(w for _, w in pos)
+
+
+def openalex_hit(w: dict) -> WireSearchHit | None:
+    url = next((loc.get("landing_page_url") for loc in w.get("locations") or []
+                if "arxiv.org/abs/" in (loc.get("landing_page_url") or "")), None)  # fmt: skip
+    if not url:
+        return None
+    authors = [(a.get("author") or {}).get("display_name") for a in w.get("authorships") or []]
+    when = ts(w.get("publication_date"))  # a bare date parses naive
+    return WireSearchHit(
+        url=url.replace("http://", "https://"), title=w.get("title") or "", source="arxiv",
+        snippet=_abstract(w.get("abstract_inverted_index"))[:300],
+        timestamp=when.replace(tzinfo=UTC) if when and when.tzinfo is None else when,
+        author=", ".join(a for a in authors[:3] if a) or None,
+        engagement={"citations": w.get("cited_by_count") or 0},
+    )  # fmt: skip
+
+
 _SUBMITTED = re.compile(r"Submitted\s+(\d{1,2})\s+([A-Za-z]+),?\s+(\d{4})")
 
 
@@ -124,15 +153,31 @@ class ArxivChannel(Channel):
 
     async def search(self, query, *, limit=5, sort="relevance"):
         try:
-            entries, _ = await self._query(f"all:{query}", limit, sort in ("new", "date", "recent"))
-        except WireFetchError:  # export.arxiv.org is slow / rate-limited at times
-            try:
-                return await self._html_search(query, limit, sort in ("new", "date", "recent"))
-            except (WireFetchError, RequestException):
-                return await self._s2_search(query, limit)
+            entries, _ = await asyncio.wait_for(
+                self._query(f"all:{query}", limit, sort in ("new", "date", "recent")),
+                EXPORT_BUDGET_S,
+            )
+        except (WireFetchError, TimeoutError, ET.ParseError):  # export.arxiv.org stalls / 429s
+            by_date = sort in ("new", "date", "recent")
+            for fallback in (self._openalex_search, self._html_search):
+                try:
+                    if hits := await fallback(query, limit, by_date):
+                        return hits
+                except (WireFetchError, RequestException, ValueError, KeyError, TypeError):
+                    continue
+            return await self._s2_search(query, limit)
         return [WireSearchHit(url=e["url"], title=e["title"], snippet=e["summary"][:300], source="arxiv",
                               timestamp=e["published"], author=", ".join(a for a in e["authors"][:3] if a))
                 for e in entries]  # fmt: skip
+
+    async def _openalex_search(self, query: str, limit: int, by_date: bool) -> list[WireSearchHit]:
+        order = "publication_date:desc" if by_date else "relevance_score:desc"
+        data, _ = await self.fetch_json(
+            f"{OPENALEX}?search={quote(query)}&filter=locations.source.id:{OPENALEX_ARXIV}"
+            f"&sort={order}&per_page={limit}&select=title,publication_date,authorships,locations,"
+            "cited_by_count,abstract_inverted_index"
+        )
+        return [h for h in map(openalex_hit, data.get("results") or []) if h][:limit]
 
     async def _html_search(self, query: str, limit: int, by_date: bool) -> list[WireSearchHit]:
         order = "&order=-announced_date_first" if by_date else ""
