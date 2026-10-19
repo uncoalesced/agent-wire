@@ -358,3 +358,22 @@ def test_devto_tags_and_arxiv_html_search():
     h = arxiv_papers.parse_search_html(html)[0]
     assert h.title == "Diffusion LMs" and h.author == "Ann, Bo" and h.snippet == "We study things."
     assert h.timestamp == datetime(2026, 10, 15, tzinfo=UTC)
+
+
+def test_arxiv_search_falls_back_to_openalex(make_ctx, run, monkeypatch):
+    from agent_wire.channels.tier2_pro import arxiv_papers
+
+    work = {"title": "Masked Diffusion LMs", "publication_date": "2026-07-23", "cited_by_count": 46,
+            "authorships": [{"author": {"display_name": "Ann"}}],
+            "locations": [{"landing_page_url": "https://doi.org/x"},
+                          {"landing_page_url": "http://arxiv.org/abs/2406.07524"}],
+            "abstract_inverted_index": {"We": [0], "diffuse.": [2], "text": [1]}}  # fmt: skip
+    ctx = make_ctx(
+        {"export.arxiv.org": fetched(b"", status=429), "api.openalex.org": {"results": [work]}}
+    )
+    hits = run(ctx.channel("arxiv").search("diffusion language models"))
+    h = hits[0]
+    assert h.url == "https://arxiv.org/abs/2406.07524" and h.snippet == "We text diffuse."
+    assert h.timestamp == datetime(2026, 7, 23, tzinfo=UTC) and h.engagement == {"citations": 46}
+    assert "S4306400194" in next(u for u, _ in ctx.waterfall.calls if "openalex" in u)
+    assert arxiv_papers.openalex_hit({"locations": []}) is None
