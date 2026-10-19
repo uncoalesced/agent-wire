@@ -58,7 +58,8 @@ def parse_thread(data: list) -> dict:
     post = data[0]["data"]["children"][0]["data"]
     body = post.get("selftext") or ""
     if not post.get("is_self") and post.get("url"):
-        body = f"Link: {post['url']}\n\n{body}".strip()
+        link = WWW + post["url"] if post["url"].startswith("/") else post["url"]  # crossposts
+        body = f"Link: {link}\n\n{body}".strip()
     return {
         "title": post.get("title"),
         "author_handle": post.get("author"),
