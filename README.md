@@ -21,7 +21,17 @@
   <a href="#privacy-and-prompt-injection">Privacy</a>
 </p>
 
-agent-wire is one MCP server that lets an AI agent read the web and 31 platforms: Reddit, X, GitHub, YouTube, Hacker News, Stack Overflow, arXiv, Polymarket, Bilibili and the rest. Pages come back as dense Markdown cut to a token budget, and your cookies and identity stay out of the model's context. Ask it about a topic and it searches all of them at once, then hands back one cited brief of what people said in the last 30 days. It runs on your machine. The common cases need no API keys.
+**Did you know your AI agent can't really see the internet?** Claude, Codex and the rest answer from training data that stops months before you're talking to them. The fetch tools they come with run into login walls, Cloudflare "Just a moment…" pages and 200k tokens of raw HTML.
+
+agent-wire fixes that. It's one MCP server that gives any agent live access to the web and 31 platforms, including X/Twitter, Reddit, GitHub, YouTube, Hacker News, Stack Overflow, arXiv, Polymarket, Yahoo Finance and Bilibili. It's free, it runs on your machine, and the common cases need no API keys.
+
+What that gets you in practice:
+
+- **Live data, not stale answers.** Ask "what is Reddit saying about X today?" and get today's threads with scores and the best comments.
+- **Scraping without the scraper.** Feeds, timelines, trending repos, search results and full pages come back as clean Markdown your agent can work with straight away.
+- **Numbers for analytics.** Stock and crypto quotes, prediction-market odds, GitHub stars and PR activity, and engagement on posts. That's enough for quick stats, comparisons and charts.
+- **Daily briefings.** Watch a few topics and get a morning digest of what changed. It pairs well with any newsletter or summary skill you already use.
+- **Small on tokens.** On the pages we measured, a GitHub issue went from ~198k tokens of raw HTML to ~2k, and a Wikipedia article from ~80k to ~1.9k. Your identity and cookies never reach the model.
 
 > [!NOTE]
 > It's young. If a site stops parsing, please open an issue with the URL.
@@ -34,28 +44,50 @@ agent-wire is one warm async Python process instead. Routing, bot walls, logins,
 
 ## Install
 
-You need [uv](https://docs.astral.sh/uv/). Then install into whichever agent clients it finds in the current project and your home folder:
+You need [uv](https://docs.astral.sh/uv/). From the folder you work in, run:
 
 ```bash
 uvx agent-wire-cli install --client auto
 ```
 
-On PyPI it's called `agent-wire-cli`, because PyPI thought `agent-wire` looked too much like an existing package. The command is still `wire`. For the latest commit instead of the latest release:
+It finds the agent clients on your machine, shows what it will write, and asks first (`--yes` skips the question). Restart your agent afterwards. On PyPI the package is `agent-wire-cli`, because `agent-wire` was too close to an existing name. The shell command is `wire`.
+
+**Pick a client** with `--client <name>`: `claude-code`, `codex`, `cursor`, `vscode`, `windsurf`, `roo`, `gemini`, `antigravity`, `hermes`, `claude-desktop`, `peridot`, or `all`. Add `--dry-run` to see the changes first. Existing config is merged, never overwritten.
+
+**Codex:**
 
 ```bash
-uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto
+uvx agent-wire-cli install --client codex
 ```
 
-`auto` lists the clients it found and asks before writing; `--yes` skips the question. Or pick one: `claude-code`, `codex`, `hermes`, `antigravity`, `claude-desktop`, `cursor`, `windsurf`, `vscode`, `roo`, `gemini`, `peridot`, or `all`. Add `--global` for user-wide config and `--dry-run` to see what would change. Existing config files are merged rather than overwritten, and a file that isn't valid JSON or TOML is left alone.
+This adds an `[mcp_servers.agent_wire]` entry to `~/.codex/config.toml` and installs the agent-wire skill next to it. If your project already has a `.codex/` folder, it writes there instead.
 
-In Claude Code you can also add it as a plugin:
+**One project or everywhere.** By default it installs into the current project only. For Claude Code that means `.mcp.json` and `.claude/skills/` in the repo, and Cursor, VS Code and Roo work the same way. Point it at another repo with `--project PATH`, or add `--global` to install for your user account so every project gets it:
+
+```bash
+uvx agent-wire-cli install --client claude-code --project ~/code/my-app
+```
+
+```bash
+uvx agent-wire-cli install --client claude-code --global
+```
+
+**Any other MCP client.** Add this server to its config (most use the same `mcpServers` shape):
+
+```json
+{ "mcpServers": { "agent_wire": { "command": "uvx", "args": ["agent-wire-cli", "serve"] } } }
+```
+
+**Claude Code plugin.** Instead of the installer you can use the plugin. It bundles the MCP server, a skill that tells Claude when to use it (pasted links, "what are people saying about…", live prices), and a `wire-worker` subagent for reading many pages without filling the main context.
 
 ```text
 /plugin marketplace add uncoalesced/agent-wire
 /plugin install agent-wire@agent-wire
 ```
 
-For small local models (Ollama, LM Studio, 8 GB GPUs), install or serve with `--profile local`. Tool descriptions then fit in under 80 tokens and every answer is capped at 800.
+**How the MCP part works.** Your agent starts `agent-wire-cli serve` as a local process and talks to it over stdio, so nothing is hosted and no account is needed. The server offers [six tools](#the-six-tools), and the agent calls them like any built-in tool. Use `wire serve --transport http --port 8765` if your client wants HTTP instead. For small local models (Ollama, LM Studio, 8 GB GPUs) add `--profile local`: tool descriptions shrink to under 80 tokens and answers are capped at 800.
+
+For the latest commit instead of the latest release, use `uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto`.
 
 ## Using it
 
@@ -193,7 +225,7 @@ Some sites fight harder than others. These are the ones I know about:
 - Cloudflare-protected pages, Zhihu, Xueqiu and Boss Zhipin often need the stage-4 browser: `uv tool install "agent-wire-cli[stealth]"` then `playwright install chromium`. It renders the page headlessly, waits for a JS challenge to clear, and keeps its profile and temp files in `WIRE_HOME`. Cloudflare ties its clearance cookie to the browser, so repeat visits to such a site render again (about 10 seconds each).
 - arXiv's export API sometimes stalls. After 8 seconds, search asks OpenAlex instead, then arxiv.org's own search page, then Semantic Scholar.
 - Google News links are JavaScript redirects. agent-wire resolves them to the publisher's URL, so briefs link to the actual article.
-- TikTok is unreachable from countries that block it.
+- TikTok is not available in countries that block it.
 
 ## Configuration
 
