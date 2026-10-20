@@ -225,7 +225,7 @@ Some sites fight harder than others. These are the ones I know about:
 - Cloudflare-protected pages, Zhihu, Xueqiu and Boss Zhipin often need the stage-4 browser: `uv tool install "agent-wire-cli[stealth]"` then `playwright install chromium`. It renders the page headlessly, waits for a JS challenge to clear, and keeps its profile and temp files in `WIRE_HOME`. Cloudflare ties its clearance cookie to the browser, so repeat visits to such a site render again (about 10 seconds each).
 - arXiv's export API sometimes stalls. After 8 seconds, search asks OpenAlex instead, then arxiv.org's own search page, then Semantic Scholar.
 - Google News links are JavaScript redirects. agent-wire resolves them to the publisher's URL, so briefs link to the actual article.
-- TikTok is unreachable from countries that block it.
+- TikTok is not avaiable in countries that block it.
 
 ## Configuration
 
