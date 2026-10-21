@@ -21,5 +21,6 @@
   "icon": "./assets/agent-wire-logo.png",
   "privacyPolicyUrl": "https://github.com/uncoalesced/agent-wire#privacy-policy",
   "documentationUrl": "https://github.com/uncoalesced/agent-wire#readme",
-  "supportUrl": "https://github.com/uncoalesced/agent-wire/issues"
+  "supportUrl": "https://github.com/uncoalesced/agent-wire/issues",
+  "termsOfServiceUrl": "https://github.com/uncoalesced/agent-wire#terms-of-use"
 }

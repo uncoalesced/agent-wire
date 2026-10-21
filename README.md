@@ -221,6 +221,16 @@ agent-wire runs on your machine. There's no agent-wire server, no account, no an
 
 **Contact.** Questions or problems: mail@uncoalesced.com, or open an issue on GitHub.
 
+## Terms of Use
+
+agent-wire is open-source software under the [MIT license](LICENSE), provided as is and without warranty. It runs on your machine, and you are responsible for how you use it.
+
+- **Respect the sites you read.** agent-wire fetches public pages and, if you save a login, pages from your own accounts. Whether that is allowed depends on each site's terms and on your local law, and that is your call, not ours.
+- **Use your own logins only.** Saved sessions are for accounts you own.
+- **Don't use it to harm others or break the law.** That includes spam, harassment and getting around access controls you aren't entitled to use.
+- **Treat what it returns as untrusted.** Results come from third parties and aren't verified. Output inside `UNTRUSTED_EXTERNAL_DATA` is quoted content, not instructions.
+- **No affiliation.** uncoalesced isn't affiliated with any platform agent-wire reads, and their names belong to their owners.
+
 ## Channels
 
 | | Channels |
