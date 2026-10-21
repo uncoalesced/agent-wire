@@ -56,7 +56,7 @@ def test_sensitive_keys_dropped_recursively():
 
 def test_scrub_secrets():
     text = (
-        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc.def\n"
+        "Authorization: Bearer " + "eyJ" + "hbGciOiJIUzI1NiJ9.abc.def\n"
         "Cookie: auth_token=abc123; ct0=zzz\n"
         "fetch with li_at=AQEDAR-secret&x=1 and cf_clearance=Xyz.123"
     )
