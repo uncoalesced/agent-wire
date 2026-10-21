@@ -8,5 +8,15 @@
   "homepage": "https://github.com/uncoalesced/agent-wire",
   "repository": "https://github.com/uncoalesced/agent-wire",
   "license": "MIT",
-  "keywords": ["web", "search", "reddit", "github", "youtube", "mcp", "scraping", "research"]
+  "keywords": [
+    "web",
+    "search",
+    "reddit",
+    "github",
+    "youtube",
+    "mcp",
+    "scraping",
+    "research"
+  ],
+  "icon": "./assets/agent-wire-logo.png"
 }
