@@ -1,4 +1,4 @@
-"""The wire pipeline (shared by MCP tools and the CLI) and the FastMCP server exposing 5 tools."""
+"""The wire pipeline (shared by MCP tools and the CLI) and the FastMCP server exposing 6 tools."""
 
 import asyncio
 import json
@@ -427,35 +427,53 @@ def create_server(
     mcp = FastMCP("agent_wire", instructions=INSTRUCTIONS if profile == "standard" else None,
                   version=__version__)  # fmt: skip
 
-    @mcp.tool(name="wire_read", description=d["wire_read"])
+    @mcp.tool(
+        name="wire_read", title="Read web pages", description=d["wire_read"],
+        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+    )
     async def wire_read(
         urls: str | list[str], query: str | None = None, section: str | None = None,
         include_comments: bool = True, max_tokens: int = p["read_max_tokens"], force: bool = False,
     ) -> str:  # fmt: skip
         return await wire.read(urls, query, section, include_comments, max_tokens, force)
 
-    @mcp.tool(name="wire_search", description=d["wire_search"])
+    @mcp.tool(
+        name="wire_search", title="Search platforms", description=d["wire_search"],
+        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+    )
     async def wire_search(
         query: str, platforms: list[str] | None = None, limit: int = 5, sort: str = "relevance",
         auto_expand_top: int = p["auto_expand_top"], max_tokens: int = p["search_max_tokens"],
     ) -> str:  # fmt: skip
         return await wire.search(query, platforms, limit, sort, auto_expand_top, max_tokens)
 
-    @mcp.tool(name="wire_feed", description=d["wire_feed"])
+    @mcp.tool(
+        name="wire_feed", title="Read feeds and timelines", description=d["wire_feed"],
+        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+    )
     async def wire_feed(platform: str, target: str, sort: str = "hot", limit: int = 10,
                         max_tokens: int = 2000) -> str:  # fmt: skip
         return await wire.feed(platform, target, sort, limit, max_tokens)
 
-    @mcp.tool(name="wire_me", description=d["wire_me"])
+    @mcp.tool(
+        name="wire_me", title="Read my own account", description=d["wire_me"],
+        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+    )
     async def wire_me(platform: str, target: str = "latest_posts", limit: int = 5,
                       max_tokens: int = 1500) -> str:  # fmt: skip
         return await wire.me(platform, target, limit, max_tokens)
 
-    @mcp.tool(name="wire_status", description=d["wire_status"])
+    @mcp.tool(
+        name="wire_status", title="Check agent-wire status", description=d["wire_status"],
+        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+    )
     async def wire_status(refresh: bool = False) -> str:
         return await wire.status(refresh)
 
-    @mcp.tool(name="wire_research", description=d["wire_research"])
+    @mcp.tool(
+        name="wire_research", title="Last-30-days research", description=d["wire_research"],
+        annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True},
+    )
     async def wire_research(
         topic: str = "", days: int = 30, platforms: list[str] | None = None, mode: str = "auto",
         depth: str = "default", github_user: str | None = None, as_of: str | None = None,

@@ -209,6 +209,18 @@ Pages get the opposite treatment. Anything a person reading the page couldn't se
 
 Logins you add with `wire auth login <site>` live in an AES-GCM vault whose key is protected by Windows DPAPI, or by a 0600 key file on macOS and Linux.
 
+## Privacy Policy
+
+agent-wire runs on your machine. There's no agent-wire server, no account, no analytics and no telemetry.
+
+**What it stores.** Pages and results you ask for are processed in memory and kept in a session buffer while the server runs. Route memory is cached in `WIRE_HOME` and expires after 24 hours. If you call `wire_research` with `store=True`, the run is saved to `research.db` in `WIRE_HOME`, and it stays there until you delete it. Logins you add with `wire auth login <site>` go in an encrypted local vault (AES-GCM, with the key protected by Windows DPAPI, or a 0600 key file on macOS and Linux). Nothing is uploaded to uncoalesced. `wire auth logout <site>` removes a saved login, and deleting `WIRE_HOME` removes everything local.
+
+**Who sees your requests.** Only the services needed to answer them: the platforms you ask about, plus public fallbacks (Reddit's PullPush and Arctic Shift archives, OpenAlex, Semantic Scholar, Google News), and Exa or a SearXNG instance if you set one up. If you turn on transcription with an external API (`WIRE_TRANSCRIBE=1`), the audio goes to that API. A saved cookie goes only to the site it belongs to, only on read requests, and never follows a redirect to another site.
+
+**What your model sees.** Page text, after the scrub strips tokens, cookies, private IP addresses and, on logged-in pages, emails. Your cookies and identity never reach it.
+
+**Contact.** Questions or problems: mail@uncoalesced.com, or open an issue on GitHub.
+
 ## Channels
 
 | | Channels |
