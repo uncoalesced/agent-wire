@@ -429,7 +429,10 @@ def create_server(
 
     @mcp.tool(
         name="wire_read", title="Read web pages", description=d["wire_read"],
-        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+        annotations={
+            "readOnlyHint": True, "destructiveHint": False,
+            "idempotentHint": True, "openWorldHint": True,
+        },
     )
     async def wire_read(
         urls: str | list[str], query: str | None = None, section: str | None = None,
@@ -439,7 +442,10 @@ def create_server(
 
     @mcp.tool(
         name="wire_search", title="Search platforms", description=d["wire_search"],
-        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+        annotations={
+            "readOnlyHint": True, "destructiveHint": False,
+            "idempotentHint": True, "openWorldHint": True,
+        },
     )
     async def wire_search(
         query: str, platforms: list[str] | None = None, limit: int = 5, sort: str = "relevance",
@@ -449,7 +455,10 @@ def create_server(
 
     @mcp.tool(
         name="wire_feed", title="Read feeds and timelines", description=d["wire_feed"],
-        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+        annotations={
+            "readOnlyHint": True, "destructiveHint": False,
+            "idempotentHint": True, "openWorldHint": True,
+        },
     )
     async def wire_feed(platform: str, target: str, sort: str = "hot", limit: int = 10,
                         max_tokens: int = 2000) -> str:  # fmt: skip
@@ -457,7 +466,10 @@ def create_server(
 
     @mcp.tool(
         name="wire_me", title="Read my own account", description=d["wire_me"],
-        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+        annotations={
+            "readOnlyHint": True, "destructiveHint": False,
+            "idempotentHint": True, "openWorldHint": True,
+        },
     )
     async def wire_me(platform: str, target: str = "latest_posts", limit: int = 5,
                       max_tokens: int = 1500) -> str:  # fmt: skip
@@ -465,14 +477,20 @@ def create_server(
 
     @mcp.tool(
         name="wire_status", title="Check agent-wire status", description=d["wire_status"],
-        annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+        annotations={
+            "readOnlyHint": True, "destructiveHint": False,
+            "idempotentHint": True, "openWorldHint": True,
+        },
     )
     async def wire_status(refresh: bool = False) -> str:
         return await wire.status(refresh)
 
     @mcp.tool(
         name="wire_research", title="Last-30-days research", description=d["wire_research"],
-        annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True},
+        annotations={
+            "readOnlyHint": False, "destructiveHint": False,
+            "idempotentHint": False, "openWorldHint": True,
+        },
     )
     async def wire_research(
         topic: str = "", days: int = 30, platforms: list[str] | None = None, mode: str = "auto",
