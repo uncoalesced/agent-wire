@@ -1,5 +1,6 @@
 {
   "name": "agent-wire",
+  "description": "Live web and 31-platform access for AI agents from one local MCP server: token-compressed, privacy-firewalled, injection-shielded.",
   "owner": {
     "name": "uncoalesced"
   },
