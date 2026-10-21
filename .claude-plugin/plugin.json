@@ -18,5 +18,8 @@
     "scraping",
     "research"
   ],
-  "icon": "./assets/agent-wire-logo.png"
+  "icon": "./assets/agent-wire-logo.png",
+  "privacyPolicyUrl": "https://github.com/uncoalesced/agent-wire#privacy-policy",
+  "documentationUrl": "https://github.com/uncoalesced/agent-wire#readme",
+  "supportUrl": "https://github.com/uncoalesced/agent-wire/issues"
 }
