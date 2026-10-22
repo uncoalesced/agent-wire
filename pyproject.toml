@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-wire-cli"
-version = "0.2.1"
+version = "0.2.2"
 description = "High-speed, privacy-first, token-compressed live web and multi-platform intelligence engine for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
