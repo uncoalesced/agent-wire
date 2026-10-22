@@ -7,17 +7,15 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/agent-wire-cli/"><img alt="PyPI" src="https://img.shields.io/pypi/v/agent-wire-cli?color=f2913f"></a>
-  <a href="https://pypi.org/project/agent-wire-cli/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/agent-wire-cli?color=b0723f"></a>
-  <a href="https://github.com/uncoalesced/agent-wire/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/uncoalesced/agent-wire/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-f5b884"></a>
+  <a href="https://pypi.org/project/agent-wire-cli/"><img alt="PyPI" height="20" src="https://img.shields.io/pypi/v/agent-wire-cli?label=pypi&color=f2913f&cacheSeconds=3600"></a>
+  <a href="https://pypi.org/project/agent-wire-cli/"><img alt="Python" height="20" src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Funcoalesced%2Fagent-wire%2Fmain%2Fpyproject.toml&label=python&color=b0723f"></a>
+  <a href="https://github.com/uncoalesced/agent-wire/actions/workflows/ci.yml"><img alt="CI" height="20" src="https://img.shields.io/github/actions/workflow/status/uncoalesced/agent-wire/ci.yml?branch=main&label=ci"></a>
+  <a href="LICENSE"><img alt="MIT license" height="20" src="https://img.shields.io/badge/license-MIT-f5b884"></a>
+  <a href="https://m8ven.ai/mcp/uncoalesced/agent-wire?s=readme"><img alt="M8ven Score" height="20" src="https://m8ven.ai/badge/mcp/uncoalesced/agent-wire"></a>
 </p>
 
 <p align="center">
-
-[![M8ven Score](https://m8ven.ai/badge/mcp/uncoalesced/agent-wire)](https://m8ven.ai/mcp/uncoalesced/agent-wire?s=readme)
-[![Agent Wire on AI Agents Listing](https://aiagentslisting.com/agent-wire/badge.svg?claim=a5f96deb57e24160a5d0f3fa90cedf9b)](https://aiagentslisting.com/mcp/agent-wire)
-
+  <a href="https://aiagentslisting.com/mcp/agent-wire"><img alt="Agent Wire on AI Agents Listing" height="50" src="https://aiagentslisting.com/agent-wire/badge.svg?claim=a5f96deb57e24160a5d0f3fa90cedf9b"></a>
 </p>
 
 <p align="center">
