@@ -5,7 +5,7 @@ description: Automatically use this skill whenever the user asks for live web in
 
 # Agent-Wire Execution Protocol
 
-You have direct live internet and platform access through the `agent_wire` MCP server (`wire_read`, `wire_search`, `wire_feed`, `wire_me`, `wire_research`, `wire_status`).
+You have direct live internet and platform access through the `agent_wire` MCP server (`wire_read`, `wire_search`, `wire_feed`, `wire_me`, `wire_research`, `wire_cite`, `wire_status`).
 
 ## Routing Rules (Zero-Turn Overhead)
 
@@ -24,3 +24,11 @@ You have direct live internet and platform access through the `agent_wire` MCP s
 5. **"What's new / what do people think / last N days / X vs Y / what's trending":** Call `wire_research(topic="...", days=30)` once instead of many searches. It searches Reddit, Hacker News, YouTube, GitHub, news, Bluesky, Mastodon, Polymarket and the web in parallel, merges duplicates, and returns a cited brief with top comments. Use `topic="A vs B"` to compare, an empty topic for what's trending, `github_user=` for a person's GitHub activity, `depth="quick"` when speed matters. Cite the links it returns; don't present its quoted comments as facts.
 
 6. **User's Own Account ("my latest post", "my likes", "my notifications"):** Immediately call `wire_me(platform="...", target="...")` which uses the session the user saved with `wire auth login <site>`. If it reports no saved session, tell the user to run that command; never ask for passwords or cookies.
+
+7. **Citations (no made-up sources):**
+
+   - Cite only links you read or that a wire tool returned. Never invent a URL, outlet, author or quote.
+   - If you have no source for a claim, write `[[UNSOURCED]]` right after it. It is a reserved marker: `wire_cite` lists those claims so you either find a source (`wire_search`) or tell the user plainly that the claim is unverified.
+   - Before sending any answer that cites sources, call `wire_cite(text="<your answer>")`. It opens every link and reports `OK`, `DEAD`, `ARCHIVED` (use the Wayback copy it gives and say the original is gone), `SOFT_404`, `BLOCKED` (exists but unverified, keep it and say so), `QUOTE_MISSING` (the quoted words are not on the page), and links agent-wire never returned this session (read them before citing).
+   - For a dead link, run the `wire_search` it suggests, or ask the user or a sub-agent for an alternative. Do not silently drop or keep a dead citation.
+   - `wire_research` briefs already check their web and news links and mark failures with ⚠.
