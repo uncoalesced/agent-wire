@@ -14,6 +14,13 @@
 </p>
 
 <p align="center">
+
+[![M8ven Score](https://m8ven.ai/badge/mcp/uncoalesced/agent-wire)](https://m8ven.ai/mcp/uncoalesced/agent-wire?s=readme)
+[![Agent Wire on AI Agents Listing](https://aiagentslisting.com/agent-wire/badge.svg?claim=a5f96deb57e24160a5d0f3fa90cedf9b)](https://aiagentslisting.com/mcp/agent-wire)
+
+</p>
+
+<p align="center">
   <a href="#install">Install</a> ·
   <a href="#last-30-days-research">Research</a> ·
   <a href="#the-seven-tools">Tools</a> ·
