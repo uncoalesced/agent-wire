@@ -46,6 +46,18 @@ def _take_line(t) -> str:
     return f"   > {who}{score}: {' '.join(t.comment.body.split())[:240]}"
 
 
+def _flag(r: ResearchResult, url: str) -> str:
+    """' ⚠ dead (HTTP 404) · [archived](…)' after a link whose check failed; '' otherwise."""
+    c = r.link_status.get(url)
+    if c is None or c.verdict in ("OK", "QUOTE_MISSING"):
+        return ""
+    if c.verdict == "BLOCKED":
+        return " ⚠ unverified (site blocks bots)"
+    why = f"HTTP {c.status}" if c.status and c.verdict != "SOFT_404" else c.note
+    word = "dead" if c.verdict != "SOFT_404" else "content gone"
+    return f" ⚠ {word} ({why})" + (f" · [archived]({c.archive})" if c.archive else "")
+
+
 def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
     p = r.plan
     now = p.until
@@ -61,7 +73,9 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
     if r.topics:
         out += ["", "## Trending topics"]
         for i, t in enumerate(r.topics, 1):
-            ex = " · ".join(f"[{e['title'][:70]}]({e['url']})" for e in t["examples"])
+            ex = " · ".join(
+                f"[{e['title'][:70]}]({e['url']}){_flag(r, e['url'])}" for e in t["examples"]
+            )
             out.append(f"{i}. **{t['topic']}** · {t['momentum']} · {t['mentions']} stories on "
                        f"{', '.join(t['sources'])}\n   {ex}")  # fmt: skip
 
@@ -87,7 +101,7 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
             when = relative_age(c.first_seen, now) if c.first_seen else "undated"
             bits = (", ".join(c.sources), engagement_line(c.engagement), when, c.momentum(now))
             out.append(
-                f"{idx + 1}. **[{c.title}]({c.lead.hit.url})** · "
+                f"{idx + 1}. **[{c.title}]({c.lead.hit.url})**{_flag(r, c.lead.hit.url)} · "
                 + " · ".join(b for b in bits if b)
             )
             seen = {c.lead.hit.url}
@@ -95,9 +109,9 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
             for i in sorted(c.items, key=lambda i: -i.score):
                 if i.hit.url not in seen and len(cites) < 4:
                     seen.add(i.hit.url)
-                    cites.append(f"[{i.source}]({i.hit.url})")
+                    cites.append(f"[{i.source}]({i.hit.url}){_flag(r, i.hit.url)}")
             if c.link and c.link not in seen:
-                cites.append(f"[article]({c.link})")
+                cites.append(f"[article]({c.link}){_flag(r, c.link)}")
             if cites:
                 out.append("   also: " + " · ".join(cites))
             # the platform's own blurb beats the start of a page (a repo's file list, a nav bar)
@@ -120,6 +134,9 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
         out += ["", "## Not covered"]
         out += [f"- {s}: {why}" for s, why in sorted(r.gaps.items())]
         out += [f"- {note}" for note in p.notes]
+    if r.link_status:
+        bad = sum(1 for c in r.link_status.values() if c.bad)
+        out += ["", f"_Links checked: {len(r.link_status)} opened, {bad} dead or gone (marked ⚠)._"]
     return "\n".join(out).strip()
 
 
@@ -140,6 +157,8 @@ def to_dict(r: ResearchResult) -> dict:
         "counts": r.counts, "gaps": r.gaps, "subjects": r.subjects, "topics": r.topics,
         "person": r.person, "library": r.library, "headline": headline(r),
         "markets": [item(i) for i in r.markets],
+        "link_status": {u: {"verdict": c.verdict, "status": c.status, "archive": c.archive,
+                            "note": c.note} for u, c in r.link_status.items()},
         "clusters": [{"title": c.title, "score": c.score, "momentum": c.momentum(p.until),
                       "sources": c.sources, "engagement": c.engagement, "link": c.link,
                       "excerpt": r.excerpts.get(idx),

@@ -14,9 +14,16 @@
 </p>
 
 <p align="center">
+
+[![M8ven Score](https://m8ven.ai/badge/mcp/uncoalesced/agent-wire)](https://m8ven.ai/mcp/uncoalesced/agent-wire?s=readme)
+[![Agent Wire on AI Agents Listing](https://aiagentslisting.com/agent-wire/badge.svg?claim=a5f96deb57e24160a5d0f3fa90cedf9b)](https://aiagentslisting.com/mcp/agent-wire)
+
+</p>
+
+<p align="center">
   <a href="#install">Install</a> ·
   <a href="#last-30-days-research">Research</a> ·
-  <a href="#the-six-tools">Tools</a> ·
+  <a href="#the-seven-tools">Tools</a> ·
   <a href="#channels">Channels</a> ·
   <a href="#privacy-and-prompt-injection">Privacy</a>
 </p>
@@ -85,7 +92,7 @@ uvx agent-wire-cli install --client claude-code --global
 /plugin install agent-wire@agent-wire
 ```
 
-**How the MCP part works.** Your agent starts `agent-wire-cli serve` as a local process and talks to it over stdio, so nothing is hosted and no account is needed. The server offers [six tools](#the-six-tools), and the agent calls them like any built-in tool. Use `wire serve --transport http --port 8765` if your client wants HTTP instead. For small local models (Ollama, LM Studio, 8 GB GPUs) add `--profile local`: tool descriptions shrink to under 80 tokens and answers are capped at 800.
+**How the MCP part works.** Your agent starts `agent-wire-cli serve` as a local process and talks to it over stdio, so nothing is hosted and no account is needed. The server offers [seven tools](#the-seven-tools), and the agent calls them like any built-in tool. Use `wire serve --transport http --port 8765` if your client wants HTTP instead. For small local models (Ollama, LM Studio, 8 GB GPUs) add `--profile local`: tool descriptions shrink to under 80 tokens and answers are capped at 800.
 
 For the latest commit instead of the latest release, use `uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto`.
 
@@ -159,7 +166,20 @@ wire library feed
 
 `--store` saves a run to `WIRE_HOME/research.db`. `wire watch run` re-runs every watched topic and lists only what appeared since its last run; schedule it with cron or Task Scheduler, and add `--webhook URL` to a watch to have new findings POSTed as JSON to an address you choose. `wire brief daily|weekly` writes a digest of all watched topics plus what's trending. `wire library search`, `list` and `show` work offline over saved briefs, fresh briefs gain a "From your library" section when you've researched something similar before, and `wire library feed` builds a local `index.html` and Atom `feed.xml` you can point a feed reader at.
 
-## The six tools
+## Citations you can trust
+
+Asked for sources, agents tend to fail in two ways: they make one up, or they give a real-looking link that's dead or doesn't say what they claim. agent-wire handles both.
+
+- **`[[UNSOURCED]]`.** The skill and server instructions tell the agent to write this marker after any claim it has no source for, instead of inventing one. `wire_cite` lists every marked claim, so the agent finds a source or tells you the claim is unverified.
+- **Every link gets opened.** `wire_cite` reads each cited URL (with the archive fallback switched off, so a dead page can't hide behind its Wayback copy) and returns one verdict per link: `OK`, `DEAD`, `ARCHIVED` with the snapshot to cite instead, `SOFT_404` (a 200 page that says "not found" or bounces to the home page), `BLOCKED` (exists, but refuses bots), or `QUOTE_MISSING`. Dead links come with a ready replacement search, and the agent is told to ask you or a sub-agent rather than drop the citation quietly.
+- **Provenance.** Links that agent-wire never returned during the session are flagged, because those usually came from the model's memory.
+- **Research briefs check themselves.** `wire_research` opens the web and news links it shows and marks failures with ⚠ (`--no-verify-links` skips it).
+
+```bash
+wire cite answer.md
+```
+
+## The seven tools
 
 | Tool | What it does |
 |---|---|
@@ -168,6 +188,7 @@ wire library feed
 | `wire_feed(platform, target, sort, limit)` | A subreddit, an `@user` timeline, GitHub trending, an arXiv category, a stock watchlist, an RSS feed. |
 | `wire_me(platform, target, limit)` | Your own posts, likes, bookmarks, notifications or stats, using a session you saved with `wire auth login`. |
 | `wire_research(topic, days, platforms, mode, depth, github_user, as_of, store, preflight, max_tokens)` | One cited brief of what people said about a topic in the last N days across sources, an "A vs B" comparison, or (empty topic) what's trending. |
+| `wire_cite(text, check_quotes)` | Checks the sources in an answer before the agent sends it: opens every link, flags dead, archived-only, bot-blocked and soft-404 pages (with a Wayback copy or a replacement search), checks quoted text is really on the page, flags links agent-wire never returned in this session, and lists claims marked `[[UNSOURCED]]`. |
 | `wire_status(refresh)` | Channels, saved logins and which fetch stage each site needed. Answers in a few milliseconds. |
 
 Every result is wrapped like this, so the model knows where the text came from and that it's quoted material:
@@ -182,7 +203,7 @@ Every result is wrapped like this, so the model knows where the text came from a
 ## How a request flows
 
 ```text
- agent ──► wire_read / wire_search / wire_feed / wire_me / wire_research / wire_status
+ agent ──► wire_read / wire_search / wire_feed / wire_me / wire_research / wire_cite / wire_status
               │
           router ── URL or platform ──► channel (reddit, github, youtube, web, ...)
               │
