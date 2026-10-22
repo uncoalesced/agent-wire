@@ -171,6 +171,9 @@ def research(
     ] = None,
     store: Annotated[bool, typer.Option(help="save the run to the local library")] = False,
     preflight: Annotated[bool, typer.Option(help="show the plan; no network")] = False,
+    verify_links: Annotated[
+        bool, typer.Option(help="open web/news links and mark dead ones in the brief")
+    ] = True,
     max_tokens: int | None = None,
     profile: Profile = "standard",
 ) -> None:
@@ -183,7 +186,8 @@ def research(
         wire = Wire(profile)
         try:
             return await wire.research(topic, days, platform, mode, depth, as_of, github_user, emit,
-                                       store, preflight, max_tokens or 100_000)  # fmt: skip
+                                       store, preflight, max_tokens or 100_000,
+                                       verify_links=verify_links)  # fmt: skip
         finally:
             await wire.close()
 
@@ -198,6 +202,28 @@ def research(
         typer.echo(f"wrote {target}")
     else:
         typer.echo(text)
+
+
+@app.command()
+def cite(
+    source: Annotated[
+        str, typer.Argument(help="answer text, a file containing it, or - for stdin")
+    ] = "-",
+    no_quotes: Annotated[bool, typer.Option(help="skip checking quoted text")] = False,
+    profile: Profile = "standard",
+) -> None:
+    """Check an answer's sources: dead links, missing quotes, [[UNSOURCED]] claims."""
+    try:
+        is_file = len(source) < 260 and "\n" not in source and Path(source).is_file()
+    except (OSError, ValueError):
+        is_file = False
+    if source == "-":
+        text = sys.stdin.read()
+    elif is_file:
+        text = Path(source).read_text(encoding="utf-8")
+    else:
+        text = source
+    _run(profile, lambda w: w.cite(text, not no_quotes))
 
 
 def _wire_call(profile: str, fn):
