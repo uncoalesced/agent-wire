@@ -20,6 +20,7 @@ from agent_wire.models import WireComment, WireSearchHit
 from agent_wire.research.cluster import Cluster, cluster
 from agent_wire.research.planner import Plan, make_plan, terms
 from agent_wire.research.scoring import RELEVANCE_FLOOR, Item, raw_engagement, score_items
+from agent_wire.verify.citations import Check, Checker, Citation
 
 SOURCE_CHANNEL = {"reddit": "reddit", "hackernews": "hackernews", "youtube": "youtube",
                   "github": "github", "news": "news", "bluesky": "fediverse",
@@ -34,6 +35,10 @@ READABLE = frozenset({"hackernews", "reddit", "youtube", "github", "devto", "blu
                       "stackoverflow", "lobsters", "polymarket"})  # fmt: skip
 ALGOLIA = "https://hn.algolia.com/api/v1"
 COMPARE_FLOOR = 0.2  # "A vs B" items only need to be on-topic for one side
+# Links from search engines and news feeds can be stale; platform API items exist by construction.
+VERIFY_SOURCES = frozenset({"web", "news", "techmeme"})
+MAX_LINK_CHECKS = 20
+LINK_TIMEOUT_S = 8  # per link; the whole check adds at most ~3 rounds of this to a brief
 
 
 @dataclass
@@ -56,6 +61,7 @@ class ResearchResult:
     person: str | None = None
     library: list[dict] = field(default_factory=list)
     markets: list[Item] = field(default_factory=list)  # Polymarket odds, shown on their own
+    link_status: dict[str, Check] = field(default_factory=dict)  # url -> probe, links checked
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     elapsed_ms: int = 0
     run_id: int | None = None
@@ -170,7 +176,7 @@ class Researcher:
     # ---- modes -------------------------------------------------------------------------------
     async def run(self, topic: str = "", *, days: int = 30, sources=None, mode: str = "auto",
                   depth: str = "default", as_of=None, github_user: str | None = None,
-                  library=None) -> ResearchResult:  # fmt: skip
+                  library=None, verify_links: bool = False) -> ResearchResult:  # fmt: skip
         t0 = time.perf_counter()
         has_x = bool(self.ctx.vault and self.ctx.vault.get("x.com"))
         plan = make_plan(topic, days=days, sources=sources, mode=mode, depth=depth, as_of=as_of,
@@ -186,6 +192,8 @@ class Researcher:
                 await self._person(plan, result)
         if library is not None and plan.topic:
             result.library = library.related(plan.topic, limit=3)
+        if verify_links:
+            await self._verify_links(plan, result)
         result.elapsed_ms = int((time.perf_counter() - t0) * 1000)
         return result
 
@@ -258,6 +266,23 @@ class Researcher:
             for c in sorted(best, key=lambda c: -c.score)[:2]:
                 flat = c.model_copy(update={"replies": [], "body": scrub(c.body)})
                 result.takes.append(Take(idx, url, flat))
+
+    async def _verify_links(self, plan: Plan, result: ResearchResult) -> None:
+        """Open the shown links that came from search engines / news, plus outbound articles."""
+        from agent_wire.research.brief import MAX_CLUSTERS
+
+        urls: list[str] = []
+        for c in result.clusters[: MAX_CLUSTERS[plan.depth]]:
+            urls += [i.hit.url for i in sorted(c.items, key=lambda i: -i.score)[:5]
+                     if {i.origin, i.source} & VERIFY_SOURCES]  # fmt: skip
+            if c.link:
+                urls.append(c.link)
+        urls = list(dict.fromkeys(urls))[:MAX_LINK_CHECKS]
+        if not urls:
+            return
+        checker = Checker(self.ctx.waterfall, self.ctx.pool, timeout_s=LINK_TIMEOUT_S)
+        checks = await checker.check_all([Citation(u) for u in urls], check_quotes=False)
+        result.link_status = {c.url: c for c in checks}
 
     async def _person(self, plan: Plan, result: ResearchResult) -> None:
         try:
