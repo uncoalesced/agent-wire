@@ -32,6 +32,11 @@ def _utf8() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
 
 
+def _stdin() -> str:
+    # Piped input is UTF-8 whatever the console code page says (cp1252 turns é into Ã©).
+    return sys.stdin.buffer.read().decode("utf-8-sig", errors="replace")
+
+
 def _run(profile: str, fn) -> None:
     from agent_wire.server import Wire
 
@@ -221,7 +226,7 @@ def cite(
     except (OSError, ValueError):
         is_file = False
     if source == "-":
-        text = sys.stdin.read()
+        text = _stdin()
     elif is_file:
         text = Path(source).read_text(encoding="utf-8")
     else:
@@ -240,7 +245,7 @@ def run_script(
 ) -> None:
     """Code Mode: run one JS script against wire.* and print only what it returns."""
     if code is None:
-        code = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+        code = _stdin() if source == "-" else Path(source).read_text(encoding="utf-8")
     _run(profile, lambda w: w.run(code, max_tokens))
 
 
