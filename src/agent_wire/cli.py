@@ -52,11 +52,14 @@ def serve(
     profile: Profile = "standard",
     transport: Annotated[str, typer.Option(help="stdio, http or sse")] = "stdio",
     port: int = 8765,
+    code_mode: Annotated[
+        bool, typer.Option(help="expose only wire_run (scripts) and wire_status")
+    ] = False,
 ) -> None:
     """Run the MCP server (stdio by default)."""
     from agent_wire.server import create_server
 
-    server = create_server(profile)
+    server = create_server(profile, code_mode=code_mode)
     if transport == "stdio":
         server.run(show_banner=False)
     else:
@@ -224,6 +227,21 @@ def cite(
     else:
         text = source
     _run(profile, lambda w: w.cite(text, not no_quotes))
+
+
+@app.command(name="run")
+def run_script(
+    source: Annotated[
+        str, typer.Argument(help="a .js file, or - for stdin (ignored with --eval)")
+    ] = "-",
+    code: Annotated[str | None, typer.Option("--eval", "-e", help="script text")] = None,
+    max_tokens: int | None = None,
+    profile: Profile = "standard",
+) -> None:
+    """Code Mode: run one JS script against wire.* and print only what it returns."""
+    if code is None:
+        code = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+    _run(profile, lambda w: w.run(code, max_tokens))
 
 
 def _wire_call(profile: str, fn):
