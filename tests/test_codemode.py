@@ -66,10 +66,12 @@ def test_host_failure_rejects_only_that_promise():
 
 def test_limits():
     assert "CPU time limit" in box("while (true) {}", cpu_s=0.5).error
+    assert "CPU time limit" in box("for (;;) await 0", cpu_s=0.5, wall_s=5).error  # microtasks
     assert "out of memory" in box("const a = []; while (true) a.push('x'.repeat(1e5))").error
-    assert "more than 2 wire calls" in box(
-        "for (let i = 0; i < 5; i++) await wire.sleep(1, i)", max_calls=2
-    ).error
+    assert (
+        "more than 2 wire calls"
+        in box("for (let i = 0; i < 5; i++) await wire.sleep(1, i)", max_calls=2).error
+    )
     assert "never settles" in box("await new Promise(() => {})").error
     assert "ran longer than" in box("await wire.sleep(2000, 1)", wall_s=0.3).error
     assert "not JSON-serializable" in box("const a = {}; a.a = a; return a").error
@@ -87,6 +89,24 @@ def test_no_ambient_capabilities():
             " typeof std, typeof os, typeof XMLHttpRequest]")  # fmt: skip
     assert set(json.loads(o.text)) == {"undefined"}
     assert "could not load module" in box("await import('os')").error
+
+
+@pytest.mark.parametrize("tamper", [
+    "globalThis.__state = () => 'notjson{'", "globalThis.__drain = () => '5'",
+    "globalThis.__logs = () => 5", "JSON.stringify = () => 1", "JSON.parse = () => 'FAKE'",
+    "Array.prototype.splice = () => []", "Promise.prototype.then = () => 1",
+])  # fmt: skip
+def test_script_cannot_reach_or_break_the_host_hooks(tamper):
+    o = box(tamper + "; return await wire.sleep(1, 'real')")
+    assert (o.error, json.loads(o.text)) == (None, {"echo": "real"})
+    hidden = box("return Object.getOwnPropertyNames(globalThis).filter(n => n.startsWith('__'))")
+    assert hidden.text == "[]"
+
+
+def test_lone_surrogates_never_crash_python():
+    o = box("console.log('a\udc00'); return 'x\\ud800y\\ud83d\\ude00'")
+    assert (o.text, o.logs, o.error) == ("x�y\U0001f600", "a�", None)
+    assert box("throw 'z\\ud800'").error == "Uncaught: z�"
 
 
 # ---- wire.* bindings --------------------------------------------------------------------------
@@ -134,6 +154,8 @@ def test_error_output_keeps_console_logs(tmp_path):
     out = run(make_wire(tmp_path, {}).run("console.log('step 1'); throw new Error('stop')"))
     assert out.startswith("[WIRE | error | code | 0 calls") and "Error: stop (line 1)" in out
     assert "step 1" in out and "[UNTRUSTED_EXTERNAL_DATA" in out
+    long = run(make_wire(tmp_path, {}).run("throw new Error('x'.repeat(100000))"))
+    assert len(long) < 1500 and long.index("xxx") > long.index("[UNTRUSTED_EXTERNAL_DATA")
 
 
 def test_return_value_is_capped(tmp_path):
