@@ -251,3 +251,12 @@ def test_registrable_domain():
     assert registrable_domain("old.reddit.com") == "reddit.com"
     assert registrable_domain("news.bbc.co.uk") == "bbc.co.uk"
     assert registrable_domain("localhost") == "localhost"
+
+
+def test_anonymous_fetch_never_reads_vault_even_after_login_wall():
+    vault = FakeVault({"sid": "abc"})
+    pool = FakePool(lambda u, **k: page(401, b"login required"))
+    with pytest.raises(WireFetchError):
+        run(Waterfall(pool, vault=vault).fetch(URL, anonymous=True, browser=False, archive=False))
+    assert vault.asked == []
+    assert pool.calls and all(c["cookies"] is None for c in pool.calls)
