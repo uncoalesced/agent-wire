@@ -41,8 +41,10 @@ async def _post(wire, url: str, report: dict) -> str:
     if not report["new"]:
         return "skipped (nothing new)"
     try:
+        # The user set this webhook with `wire watch add`; a local receiver is fine.
         f = await wire.pool.get(url, method="POST", impersonate=None, json_body=report,
-                                headers={"content-type": "application/json"})  # fmt: skip
+                                headers={"content-type": "application/json"},
+                                allow_private=True)  # fmt: skip
     except RequestException as e:
         return f"failed: {type(e).__name__}"
     return f"HTTP {f.status}"
