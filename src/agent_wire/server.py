@@ -252,7 +252,9 @@ class Wire:
 
     # ---- structured data (Code Mode scripts); each returns (data, raw tokens fetched) --------
     def _doc_data(self, doc: WireDocument, query: str | None, budget: int) -> dict:
-        doc = _fit(doc.model_copy(update={"comments": shield_comments(doc.comments)}), query, budget)
+        doc = _fit(
+            doc.model_copy(update={"comments": shield_comments(doc.comments)}), query, budget
+        )
         self._saw(doc.url, render_document(doc))
 
         def comment(c: WireComment) -> dict:
@@ -301,7 +303,9 @@ class Wire:
     async def feed_data(self, platform, target, sort="hot", limit=10,
                         max_tokens=2000) -> tuple[dict, int]:  # fmt: skip
         doc = await self.ctx.channel(route_platform(platform)).feed(target, sort=sort, limit=limit)
-        return self._doc_data(doc, None, max_tokens), max(doc.raw_bytes // 4, count_tokens(doc.body))
+        return self._doc_data(doc, None, max_tokens), max(
+            doc.raw_bytes // 4, count_tokens(doc.body)
+        )
 
     async def cite_data(self, text, check_quotes=True) -> tuple[dict, int]:
         checks, claims, dropped = await self._cite_checks(text, check_quotes)
@@ -321,8 +325,10 @@ class Wire:
         budget = max_tokens or self.profile["read_max_tokens"]
         logs = f"\n\n--- console ---\n{o.logs}" if o.logs else ""
         if o.error:
-            head = f"[WIRE | error | code | {o.calls} calls | {ms}ms] {scrub(o.error)}"
-            return spotlight(head, scrub(truncate_tokens(logs.strip(), budget))) if logs else head
+            # The message can carry script- or page-controlled text: cap it and keep it quoted.
+            err = o.error if len(o.error) <= 500 else o.error[:500] + " …"
+            body = truncate_tokens(scrub(err) + scrub(logs), budget)
+            return spotlight(f"[WIRE | error | code | {o.calls} calls | {ms}ms]", body)
         text = (o.text or "")[: budget * 8]  # cap before tokenizing a huge return value
         text = truncate_tokens(scrub(text) + scrub(logs), budget)
         tokens = count_tokens(text)
