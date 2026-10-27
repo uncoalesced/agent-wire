@@ -6,15 +6,13 @@ from urllib.parse import urlsplit
 from curl_cffi.requests.exceptions import RequestException
 
 from agent_wire.engine.challenge import is_auth_wall, is_blocked
+from agent_wire.engine.errors import WireFetchError
 from agent_wire.engine.http_pool import Fetched, HttpPool, registrable_domain
 from agent_wire.firewall.outbound_privacy import should_attach_cookies
+from agent_wire.firewall.ssrf_guard import check_url
 
 IMPERSONATE_ROTATION = ("chrome", "safari", "chrome_android")
 STAGES = (1, 2, 3, 4)
-
-
-class WireFetchError(Exception):
-    pass
 
 
 class Waterfall:
@@ -39,7 +37,10 @@ class Waterfall:
         anonymous: bool = False,
         method: str = "GET",
         json_body: dict | None = None,
+        allow_private: bool = False,
     ) -> Fetched:
+        if not allow_private:
+            check_url(url)  # before any stage, so a blocked URL never reaches a mirror or archive
         domain = registrable_domain(urlsplit(url).hostname)
         route = self.ledger.get_route(domain) if self.ledger else None
         start = route["stage"] if route else 1
@@ -47,7 +48,8 @@ class Waterfall:
             cookies = None
         elif cookies is None and self.vault and should_attach_cookies(channel, tool=tool):
             cookies = await self.vault.cookies_for(domain) or None
-        req = {"headers": headers, "method": method, "json_body": json_body}
+        req = {"headers": headers, "method": method, "json_body": json_body,
+               "allow_private": allow_private}  # fmt: skip
 
         # Remembered stage first; if it has gone stale, fall back through the rest in order.
         order = [s for s in STAGES if s >= start] + [s for s in STAGES if s < start]
@@ -136,6 +138,7 @@ class Waterfall:
             impersonate=impersonate,
             method=req["method"],
             json_body=req["json_body"],
+            allow_private=req["allow_private"],
         )
 
     async def _wayback(self, url: str) -> Fetched | None:
