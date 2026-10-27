@@ -8,7 +8,7 @@ from agent_wire.channels.base import Context
 from agent_wire.compression.bm25_slicer import count_tokens
 from agent_wire.server import DESCRIPTIONS, Wire, create_server
 
-TOOLS = {"wire_read", "wire_search", "wire_feed", "wire_me", "wire_status", "wire_research",
+TOOLS = {"wire_run", "wire_read", "wire_search", "wire_feed", "wire_me", "wire_status", "wire_research",
          "wire_cite"}  # fmt: skip
 
 
@@ -29,7 +29,7 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def test_mcp_lists_seven_tools_and_answers(tmp_path):
+def test_mcp_lists_tools_and_answers(tmp_path):
     mcp = create_server(home=tmp_path)
 
     async def go():
