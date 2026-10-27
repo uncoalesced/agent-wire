@@ -68,7 +68,7 @@ async def _api(pool: HttpPool, audio: bytes, filename: str) -> str:
         f = await pool.get(
             os.environ.get("WIRE_TRANSCRIBE_URL", DEFAULT_API), method="POST", impersonate=None,
             headers={"Authorization": f"Bearer {os.environ['WIRE_TRANSCRIBE_API_KEY']}"},
-            multipart=mime, timeout=600,
+            multipart=mime, timeout=600, allow_private=True,  # user-configured endpoint
         )  # fmt: skip
     finally:
         mime.close()
