@@ -308,6 +308,7 @@ Everything works without configuration. These are optional:
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | Reddit's official app login for networks where anonymous access is blocked. |
 | `WIRE_SEARXNG_URL`, `EXA_API_KEY` | Extra web search engines. |
 | `WIRE_TRANSCRIBE=1` | Transcribe podcast audio, either locally with `agent-wire-cli[local-whisper]` or through an OpenAI-compatible API (`WIRE_TRANSCRIBE_API_KEY`, `WIRE_TRANSCRIBE_URL`, `WIRE_TRANSCRIBE_MODEL`). The API route uploads the audio, so it's opt-in. |
+| `WIRE_ALLOW_PRIVATE=1` | Let reads reach private and internal addresses (localhost, LAN, link-local, `fd00::/8`). Off by default, so a prompt-injected page or script can't point agent-wire at your router or a cloud metadata endpoint. Set it only to read your own intranet. Your `WIRE_SEARXNG_URL`, transcription URL and watch webhooks are always allowed. |
 
 ## Development
 
