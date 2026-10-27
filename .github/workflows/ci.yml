@@ -8,45 +8,109 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Lockfile matches pyproject.toml
+        run: uv lock --check
+      - name: Install
+        run: uv sync --extra dev --locked
+      - name: Ruff lint
+        run: uv run ruff check src tests .github/scripts
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: No temp-dir writes in the package
+        run: "! grep -rnE 'tempfile|/tmp' src/"
+
   test:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.14"]
+        include:
+          - {os: ubuntu-latest, python: "3.12"}
+          - {os: ubuntu-latest, python: "3.13"}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ matrix.python }}
       - name: Install
         run: uv sync --extra dev --locked
-      - name: Lint
-        run: uv run ruff check src tests
       - name: Test (offline; network calls are faked)
         run: uv run pytest -q
-      - name: No temp-dir writes in the package
-        shell: bash
-        run: "! grep -rnE 'tempfile|/tmp' src/"
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: Build sdist and wheel
         run: uv build
-      - name: Wheel bundles the skill and rules
+      - name: Package metadata renders on PyPI
+        run: uvx twine check --strict dist/*
+      - name: Wheel bundles the skill, rules and sandbox, at the pyproject version
         run: |
           python - <<'EOF'
-          import glob, zipfile
-          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          import glob, re, zipfile
+          version = re.search(r'^version = "(.+)"', open("pyproject.toml").read(), re.M)[1]
+          whl = glob.glob("dist/*.whl")[0]
+          assert f"-{version}-" in whl, (whl, version)
+          names = zipfile.ZipFile(whl).namelist()
           for need in ("agent_wire/assets/SKILL.md", "agent_wire/assets/wire-worker.md",
-                       "agent_wire/research/engine.py"):
+                       "agent_wire/research/engine.py", "agent_wire/codemode/sandbox.py",
+                       "agent_wire/codemode/api.py"):
               assert need in names, need
-          print("ok", len(names), "files")
+          print("ok", whl, len(names), "files")
           EOF
-      - name: Smoke-run the built wheel
-        run: uvx --from "$(ls dist/*.whl)" agent-wire version
+
+  # Install the built wheel the way users do (no repo, no dev deps) and drive the real MCP server.
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.14"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build wheel
+        run: uv build --wheel
+      - name: CLI runs from the wheel
+        shell: bash
+        run: |
+          whl=$(ls dist/*.whl)
+          uvx --python ${{ matrix.python }} --from "$whl" agent-wire version
+          out=$(uvx --python ${{ matrix.python }} --from "$whl" wire run -e "return 6 * 7")
+          echo "$out"
+          grep -q '^42$' <<<"$out"
+      - name: MCP server over stdio (both modes)
+        shell: bash
+        run: >-
+          uv run --isolated --no-project --python ${{ matrix.python }}
+          --with "$(ls dist/*.whl)" python .github/scripts/mcp_smoke.py
