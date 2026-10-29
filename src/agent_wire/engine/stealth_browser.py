@@ -11,7 +11,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from agent_wire.engine.challenge import _HARD
+from agent_wire.engine.errors import WireBlockedError
 from agent_wire.engine.http_pool import Fetched
+from agent_wire.firewall.ssrf_guard import check_resolved, private_allowed
 
 NAV_TIMEOUT_MS = 30_000
 SETTLE_MS = 6_000  # extra wait for XHR-rendered pages; never blocks on long-polling sites
@@ -61,7 +63,21 @@ async def _still_challenged(page) -> bool:
     return any(s in html for s in _HARD)
 
 
+async def _guard(route) -> None:
+    """Abort any request (navigation, redirect hop or subresource) aimed at a private address."""
+    url = route.request.url
+    if url.startswith(("http:", "https:")):
+        try:
+            await check_resolved(url)
+        except WireBlockedError:
+            await route.abort("blockedbyclient")
+            return
+    await route.continue_()
+
+
 async def _capture(context, url: str):
+    if not private_allowed():
+        await context.route("**/*", _guard)
     page = await context.new_page()
     response = await page.goto(url, wait_until="load", timeout=NAV_TIMEOUT_MS)
     try:
