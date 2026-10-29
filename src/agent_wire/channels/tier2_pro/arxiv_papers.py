@@ -2,10 +2,10 @@
 
 import asyncio
 import re
-import xml.etree.ElementTree as ET
 from datetime import UTC
 from urllib.parse import quote, urlsplit
 
+import defusedxml.ElementTree as ET  # untrusted feeds: no entity expansion, no DTDs
 from curl_cffi.requests.exceptions import RequestException
 
 from agent_wire.channels.base import Channel, WireUnsupported, listing, ts
@@ -157,7 +157,12 @@ class ArxivChannel(Channel):
                 self._query(f"all:{query}", limit, sort in ("new", "date", "recent")),
                 EXPORT_BUDGET_S,
             )
-        except (WireFetchError, TimeoutError, ET.ParseError):  # export.arxiv.org stalls / 429s
+        except (
+            WireFetchError,
+            TimeoutError,
+            ET.ParseError,
+            ValueError,
+        ):  # export.arxiv.org stalls / 429s
             by_date = sort in ("new", "date", "recent")
             for fallback in (self._openalex_search, self._html_search):
                 try:

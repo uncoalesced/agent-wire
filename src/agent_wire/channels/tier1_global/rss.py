@@ -1,7 +1,6 @@
-"""RSS 2.0 / Atom / JSON Feed reader (stdlib expat: no external entities, billion-laughs guarded)."""
+"""RSS 2.0 / Atom / JSON Feed reader (defusedxml: no DTDs, entities or external references)."""
 
-import xml.etree.ElementTree as ET
-
+import defusedxml.ElementTree as ET  # untrusted feeds: no entity expansion, no DTDs
 import orjson
 
 from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, ts
@@ -50,7 +49,7 @@ def parse_feed(content: bytes) -> tuple[str, list[dict]]:
 
     try:
         root = ET.fromstring(content)
-    except ET.ParseError as e:
+    except (ET.ParseError, ValueError) as e:  # ValueError: defusedxml refused it
         raise NotAFeed(f"not a feed ({e})") from e
     if _local(root.tag).lower() not in ("rss", "rdf", "feed"):
         raise NotAFeed(f"not a feed (root element <{_local(root.tag)}>)")

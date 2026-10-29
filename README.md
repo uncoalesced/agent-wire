@@ -21,7 +21,8 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#last-30-days-research">Research</a> ·
-  <a href="#the-seven-tools">Tools</a> ·
+  <a href="#code-mode">Code Mode</a> ·
+  <a href="#the-tools">Tools</a> ·
   <a href="#channels">Channels</a> ·
   <a href="#privacy-and-prompt-injection">Privacy</a>
 </p>
@@ -90,7 +91,7 @@ uvx agent-wire-cli install --client claude-code --global
 /plugin install agent-wire@agent-wire
 ```
 
-**How the MCP part works.** Your agent starts `agent-wire-cli serve` as a local process and talks to it over stdio, so nothing is hosted and no account is needed. The server offers [seven tools](#the-seven-tools), and the agent calls them like any built-in tool. Use `wire serve --transport http --port 8765` if your client wants HTTP instead. For small local models (Ollama, LM Studio, 8 GB GPUs) add `--profile local`: tool descriptions shrink to under 80 tokens and answers are capped at 800.
+**How the MCP part works.** Your agent starts `agent-wire-cli serve` as a local process and talks to it over stdio, so nothing is hosted and no account is needed. The server offers [eight tools](#the-tools), and the agent calls them like any built-in tool. Use `wire serve --transport http --port 8765` if your client wants HTTP instead. Add `--code-mode` to offer only the scripting tool, `wire_run` (see [Code Mode](#code-mode)). For small local models (Ollama, LM Studio, 8 GB GPUs) add `--profile local`: tool descriptions shrink to under 80 tokens and answers are capped at 800.
 
 For the latest commit instead of the latest release, use `uvx --from git+https://github.com/uncoalesced/agent-wire wire install --client auto`.
 
@@ -177,7 +178,33 @@ Asked for sources, agents tend to fail in two ways: they make one up, or they gi
 wire cite answer.md
 ```
 
-## The seven tools
+## Code Mode
+
+A task like "what are HN's top threads on X saying?" normally takes several tool calls. The agent searches, reads the results, maybe reads more, and every page passes through its context window on the way, even though it only needs a few lines back. Code Mode (the idea comes from [Cloudflare](https://blog.cloudflare.com/code-mode/)) turns that around. The agent writes one short JavaScript script against a typed `wire.*` API, agent-wire runs it, and only the script's return value comes back.
+
+```js
+const hits = await wire.search('rust async', {platforms: 'hn', limit: 4});
+const docs = await wire.read(hits.map(h => h.url));
+return docs.map(d => ({title: d.title, points: d.score,
+  top: d.comments.sort((a, b) => b.score - a.score).slice(0, 3).map(c => c.text.slice(0, 90))}));
+```
+
+The bundled benchmark (`pytest -s tests/test_codemode_bench.py`) runs that task offline. It counts the tokens that enter the model's context: tool arguments or the script, plus every tool result. The classic route is one search followed by one batched read. It costs **3,394 tokens over two round trips**. The script costs **468 tokens in one round trip, 86% fewer**. The result header shows the saving on every call:
+
+```text
+[WIRE | code | 2 calls | fetched 14,858 tokens -> returned 310 (saved 97%) | 23ms]
+```
+
+- **API.** `wire.read`, `wire.search`, `wire.feed`, `wire.research` and `wire.cite` return plain objects (docs with comment trees, search hits, citation verdicts) instead of formatted text, so the script can filter, sort and join them. `console.log` output comes back after the result. `wire_me` stays out of scripts on purpose.
+- **Parallel.** `Promise.all` really runs calls side by side.
+- **Sandbox.** Scripts run in [QuickJS](https://github.com/quickjs-ng/quickjs) with no filesystem, network, timers or modules. The `wire.*` functions are the only way out. Each script gets 64 MB of memory, 5 s of CPU per step, 60 s in total and at most 40 calls. Everything a script reads has already passed the privacy scrub and injection shield, and its output is spotlighted like any other result.
+- **Available everywhere.** `wire_run` sits next to the other tools. `wire serve --code-mode` offers only `wire_run` and `wire_status`, the smallest tool list. From a shell:
+
+```bash
+wire run -e "return (await wire.search('sqlite wal', {platforms: ['hn', 'stackoverflow']})).map(h => h.title)"
+```
+
+## The tools
 
 | Tool | What it does |
 |---|---|
@@ -187,6 +214,7 @@ wire cite answer.md
 | `wire_me(platform, target, limit)` | Your own posts, likes, bookmarks, notifications or stats, using a session you saved with `wire auth login`. |
 | `wire_research(topic, days, platforms, mode, depth, github_user, as_of, store, preflight, max_tokens)` | One cited brief of what people said about a topic in the last N days across sources, an "A vs B" comparison, or (empty topic) what's trending. |
 | `wire_cite(text, check_quotes)` | Checks the sources in an answer before the agent sends it: opens every link, flags dead, archived-only, bot-blocked and soft-404 pages (with a Wayback copy or a replacement search), checks quoted text is really on the page, flags links agent-wire never returned in this session, and lists claims marked `[[UNSOURCED]]`. |
+| `wire_run(code, max_tokens)` | [Code Mode](#code-mode): runs one sandboxed JavaScript script that calls `wire.read/search/feed/research/cite` and returns only what the script returns. |
 | `wire_status(refresh)` | Channels, saved logins and which fetch stage each site needed. Answers in a few milliseconds. |
 
 Every result is wrapped like this, so the model knows where the text came from and that it's quoted material:
@@ -202,6 +230,7 @@ Every result is wrapped like this, so the model knows where the text came from a
 
 ```text
  agent ──► wire_read / wire_search / wire_feed / wire_me / wire_research / wire_cite / wire_status
+              │    (wire_run: a sandboxed script makes these calls and returns only its result)
               │
           router ── URL or platform ──► channel (reddit, github, youtube, web, ...)
               │

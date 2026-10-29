@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Python dependencies in uv.lock. Security fixes come as separate PRs straight away
+  # (Dependabot security updates); this keeps routine upgrades to one weekly batch.
+  - package-ecosystem: uv
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      python:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  # Actions are pinned to commit SHAs; this bumps the SHA and the version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    cooldown:
+      default-days: 7

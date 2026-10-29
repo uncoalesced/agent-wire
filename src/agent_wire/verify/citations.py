@@ -189,7 +189,8 @@ class Checker:
         try:
             # No archive fallback: a Wayback copy would hide that the original is gone.
             f = await asyncio.wait_for(
-                self.waterfall.fetch(c.url, archive=False, browser=False), self.timeout_s
+                self.waterfall.fetch(c.url, archive=False, browser=False, anonymous=True),
+                self.timeout_s,
             )
         except WireFetchError as e:
             m = re.search(r"HTTP (\d{3})", str(e))
