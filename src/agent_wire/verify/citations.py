@@ -10,7 +10,9 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from curl_cffi.requests.exceptions import RequestException
 
 from agent_wire.channels.tier1_global.web import extract_article
+from agent_wire.engine.errors import WireBlockedError
 from agent_wire.engine.waterfall import WireFetchError, wayback_snapshot
+from agent_wire.firewall.ssrf_guard import check_url
 
 CANARY = "[[UNSOURCED]]"
 CDX = "https://web.archive.org/cdx/search/cdx"
@@ -21,6 +23,7 @@ EXCERPT_CHARS = 200
 QUOTE_OVERLAP = 0.8  # share of a quote's words that must sit together on the page
 MIN_QUOTE_WORDS = 4
 BLOCK_STATUSES = frozenset({401, 403, 429, 503})
+PRIVATE_NOTE = "private or internal address, not fetched"
 SHORT_BODY = (
     400  # not-found pages say so in a line or two; longer pages that mention 404 are articles
 )
@@ -187,11 +190,15 @@ class Checker:
 
     async def _check(self, c: Citation, check_quotes: bool) -> Check:
         try:
+            check_url(c.url)
             # No archive fallback: a Wayback copy would hide that the original is gone.
             f = await asyncio.wait_for(
                 self.waterfall.fetch(c.url, archive=False, browser=False, anonymous=True),
                 self.timeout_s,
             )
+        except WireBlockedError:
+            # Never probed, and never sent to the archive either: the URL itself may be private.
+            return Check(c.url, "BLOCKED", note=PRIVATE_NOTE)
         except WireFetchError as e:
             m = re.search(r"HTTP (\d{3})", str(e))
             status = int(m[1]) if m else None
@@ -283,6 +290,11 @@ _ADVICE = {
     "DEAD": "the link is dead and has no archived copy; replace it",
 }
 
+_PRIVATE_ADVICE = (
+    "agent-wire does not read private or internal addresses, so this link is unverified; cite a "
+    "public source, or say the claim rests on an internal page"
+)
+
 
 def summary(checks: list[Check], claims: list[str]) -> str:
     counts = Counter(c.verdict for c in checks)
@@ -317,7 +329,7 @@ def render(checks: list[Check], claims: list[str], dropped: int = 0) -> tuple[st
             lines.append(f"  archived copy: {c.archive}")
         if c.quote:
             lines.append(f'  quote not on page: "{c.quote[:160]}"')
-        if advice := _ADVICE[c.verdict]:
+        if advice := _PRIVATE_ADVICE if c.note == PRIVATE_NOTE else _ADVICE[c.verdict]:
             lines.append(f"  → {advice}")
         if c.verdict in ("DEAD", "SOFT_404"):
             lines.append(

@@ -33,6 +33,7 @@ from agent_wire.engine.stealth_browser import StealthBrowser
 from agent_wire.engine.waterfall import Waterfall, WireFetchError
 from agent_wire.firewall.inbound_shield import shield_comments, spotlight
 from agent_wire.firewall.outbound_privacy import WirePrivacyBlockError, scrub
+from agent_wire.firewall.ssrf_guard import check_url
 from agent_wire.models import WireComment, WireDocument, WireSearchHit, WireTelemetry
 from agent_wire.router import ALL_PLATFORMS, route_platform, route_url
 from agent_wire.verify import citations
@@ -205,6 +206,7 @@ class Wire:
 
     async def _read_one(self, url: str, query, section, include_comments):
         t0 = time.perf_counter()
+        check_url(url)  # fails fast; every request hop is re-checked against DNS in HttpPool
         name = route_url(url)
         doc = await self.ctx.channel(name).read(url, query=query, section=section,
                                                 include_comments=include_comments)  # fmt: skip

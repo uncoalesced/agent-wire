@@ -122,7 +122,9 @@ class SearchChannel(Channel):
 
     async def _searxng(self, query: str) -> list[WireSearchHit]:
         base = os.environ["WIRE_SEARXNG_URL"].rstrip("/")
-        data, _ = await self.fetch_json(f"{base}/search?q={quote_plus(query)}&format=json")
+        # A self-hosted instance the user configured, often on localhost.
+        data, _ = await self.fetch_json(f"{base}/search?q={quote_plus(query)}&format=json",
+                                        allow_private=True)  # fmt: skip
         return [WireSearchHit(url=r["url"], title=r.get("title", ""), snippet=r.get("content", ""),
                               source="searxng") for r in data.get("results", [])]  # fmt: skip
 

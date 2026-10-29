@@ -28,7 +28,7 @@ class FakePool:
         self.calls = []
 
     async def get(self, url, *, headers=None, cookies=None, impersonate="chrome", params=None,
-                  timeout=None, method="GET", json_body=None):  # fmt: skip
+                  timeout=None, method="GET", json_body=None, allow_private=False):  # fmt: skip
         self.calls.append({"url": url, "cookies": cookies, "imp": impersonate, "headers": headers})
         return self.handler(url, cookies=cookies, impersonate=impersonate, params=params)
 
