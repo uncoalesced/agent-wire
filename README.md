@@ -36,7 +36,7 @@ What that gets you in practice:
 - **Scraping without the scraper.** Feeds, timelines, trending repos, search results and full pages come back as clean Markdown your agent can work with straight away.
 - **Numbers for analytics.** Stock and crypto quotes, prediction-market odds, GitHub stars and PR activity, and engagement on posts. That's enough for quick stats, comparisons and charts.
 - **Daily briefings.** Watch a few topics and get a morning digest of what changed. It pairs well with any newsletter or summary skill you already use.
-- **Small on tokens.** On the pages we measured, a GitHub issue went from ~198k tokens of raw HTML to ~2k, and a Wikipedia article from ~80k to ~1.9k. Your identity and cookies never reach the model.
+- **Small on tokens.** On the pages we measured, a GitHub issue went from ~198k tokens of raw HTML to ~2k and a Wikipedia article from ~80k to ~1.9k. Your identity and cookies never reach the model.
 
 > [!NOTE]
 > It's young. If a site stops parsing, please open an issue with the URL.
@@ -55,7 +55,7 @@ You need [uv](https://docs.astral.sh/uv/). From the folder you work in, run:
 uvx agent-wire-cli install --client auto
 ```
 
-It finds the agent clients on your machine, shows what it will write, and asks first (`--yes` skips the question). Restart your agent afterwards. On PyPI the package is `agent-wire-cli`, because `agent-wire` was too close to an existing name. The shell command is `wire`.
+It finds the agent clients on your machine, shows what it will write and asks first (`--yes` skips the question). Restart your agent afterwards. On PyPI the package is `agent-wire-cli`, because `agent-wire` was too close to an existing name. The shell command is `wire`.
 
 **Pick a client** with `--client <name>`: `claude-code`, `codex`, `cursor`, `vscode`, `windsurf`, `roo`, `gemini`, `antigravity`, `hermes`, `claude-desktop`, `peridot`, or `all`. Add `--dry-run` to see the changes first. Existing config is merged, never overwritten.
 
@@ -83,7 +83,7 @@ uvx agent-wire-cli install --client claude-code --global
 { "mcpServers": { "agent_wire": { "command": "uvx", "args": ["agent-wire-cli", "serve"] } } }
 ```
 
-**Claude Code plugin.** Instead of the installer you can use the plugin. It bundles the MCP server, a skill that tells Claude when to use it (pasted links, "what are people saying about…", live prices), and a `wire-worker` subagent for reading many pages without filling the main context.
+**Claude Code plugin.** Instead of the installer you can use the plugin. It bundles the MCP server, a skill that tells Claude when to use it (pasted links, "what are people saying about…", live prices) and a `wire-worker` subagent for reading many pages without filling the main context.
 
 ```text
 /plugin marketplace add uncoalesced/agent-wire
