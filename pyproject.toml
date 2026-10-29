@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-wire-cli"
-version = "0.2.2"
+version = "0.2.3"
 description = "High-speed, privacy-first, token-compressed live web and multi-platform intelligence engine for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,10 +12,12 @@ license = { text = "MIT" }
 dependencies = [
     "cryptography>=50.0.2",
     "curl-cffi>=0.16.3",
-    "fastmcp>=4.1.0",
+    "defusedxml>=0.7.1",
+    "fastmcp>=4.1.2",
     "orjson>=3.13.0",
     "pydantic>=2.14.1",
-    "rookiepy>=0.5.6 ; python_full_version < '3.14'",
+    "quickjs-ng>=0.17.0.2",
+    "rookiepy>=0.5.6 ; python_full_version < '3.13'",  # no wheels past cp312, and the sdist won't build
     "selectolax>=1.0.0",
     "tiktoken>=0.14.0",
     "trafilatura>=2.3.1",

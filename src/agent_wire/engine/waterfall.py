@@ -36,13 +36,16 @@ class Waterfall:
         tool: str = "wire_read",
         archive: bool = True,
         browser: bool = True,
+        anonymous: bool = False,
         method: str = "GET",
         json_body: dict | None = None,
     ) -> Fetched:
         domain = registrable_domain(urlsplit(url).hostname)
         route = self.ledger.get_route(domain) if self.ledger else None
         start = route["stage"] if route else 1
-        if cookies is None and self.vault and should_attach_cookies(channel, tool=tool):
+        if anonymous:  # link probes never carry a saved session, even after a login wall
+            cookies = None
+        elif cookies is None and self.vault and should_attach_cookies(channel, tool=tool):
             cookies = await self.vault.cookies_for(domain) or None
         req = {"headers": headers, "method": method, "json_body": json_body}
 
@@ -62,6 +65,7 @@ class Waterfall:
                     and stage <= 2
                     and is_auth_wall(f)
                     and not cookies
+                    and not anonymous
                     and self.vault
                     and (cookies := await self.vault.cookies_for(domain) or None)
                 ):

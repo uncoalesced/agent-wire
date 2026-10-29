@@ -10,9 +10,10 @@ import base64
 import os
 import re
 import time
-import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from urllib.parse import quote, urlencode, urlsplit
+
+import defusedxml.ElementTree as ET  # untrusted feeds: no entity expansion, no DTDs
 
 from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, ts
 from agent_wire.engine.waterfall import WireFetchError

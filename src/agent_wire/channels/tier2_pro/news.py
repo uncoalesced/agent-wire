@@ -8,11 +8,11 @@ ask the batchexecute endpoint for the target.
 import asyncio
 import json
 import re
-import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 
+import defusedxml.ElementTree as ET  # untrusted feeds: no entity expansion, no DTDs
 from curl_cffi.requests.exceptions import RequestException
 
 from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing
@@ -41,7 +41,7 @@ def _date(text: str | None) -> datetime | None:
 def parse_rss_items(content: bytes) -> list[dict]:
     try:
         root = ET.fromstring(content)
-    except ET.ParseError as e:
+    except (ET.ParseError, ValueError) as e:  # ValueError: defusedxml refused it
         raise WireUnsupported(f"news feed unreadable ({e})") from e
     out = []
     for it in root.iter("item"):

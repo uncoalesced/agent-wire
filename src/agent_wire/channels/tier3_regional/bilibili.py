@@ -32,7 +32,10 @@ def wbi_sign(params: dict, key: str, now: int | None = None) -> dict:
     signed = {**params, "wts": now if now is not None else int(time.time())}
     clean = {k: re.sub(r"[!'()*]", "", str(v)) for k, v in sorted(signed.items())}
     query = urlencode(clean)
-    return {**clean, "w_rid": hashlib.md5((query + key).encode()).hexdigest()}
+    return {
+        **clean,
+        "w_rid": hashlib.md5((query + key).encode(), usedforsecurity=False).hexdigest(),
+    }
 
 
 def parse_replies(replies: list[dict], depth: int = 0) -> list[WireComment]:

@@ -122,7 +122,7 @@ def test_search_hint_uses_title_or_slug():
 def test_live_page_is_ok_with_title_and_excerpt_and_no_archive_fallback():
     c, wf = check({"example.com": page(ARTICLE)}, "https://example.com/rust")
     assert c.verdict == "OK" and c.title == "Rust 2.0 released" and "borrow checker" in c.excerpt
-    assert wf.calls[0][1] == {"archive": False, "browser": False}
+    assert wf.calls[0][1] == {"archive": False, "browser": False, "anonymous": True}
 
 
 def test_dead_link_with_archive_copy_is_archived():
@@ -283,3 +283,9 @@ def test_research_marks_dead_outbound_links(tmp_path):
                          verify_links=False))  # fmt: skip
     assert "⚠" not in out
     run(w.close())
+
+
+def test_link_checks_are_anonymous_so_saved_logins_are_never_sent():
+    result, waterfall = check({"example.com": page(ARTICLE)}, "https://example.com/post")
+    assert result.verdict == "OK"
+    assert waterfall.calls and all(kw.get("anonymous") is True for _, kw in waterfall.calls)
