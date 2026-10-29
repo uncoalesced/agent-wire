@@ -9,10 +9,13 @@ from curl_cffi.requests import AsyncSession
 
 from agent_wire import __version__
 from agent_wire.firewall.outbound_privacy import check_request
+from agent_wire.firewall.ssrf_guard import check_resolved
 
 DEFAULT_TIMEOUT = 12  # a stalled stage should fail fast and let the waterfall escalate
 USER_AGENT = f"agent-wire/{__version__} (+https://github.com/uncoalesced/agent-wire)"
+MAX_REDIRECTS = 8
 MAX_COOKIE_REDIRECTS = 5
+REDIRECTS = frozenset({301, 302, 303, 307, 308})
 _TWO_LEVEL_TLDS = frozenset(
     {"co.uk", "org.uk", "ac.uk", "com.au", "co.in", "co.jp", "com.cn", "com.br", "co.kr", "com.tw"}
 )
@@ -91,7 +94,9 @@ class HttpPool:
         json_body: dict | None = None,
         data: dict | None = None,
         multipart=None,
+        allow_private: bool = False,
     ) -> Fetched:
+        """`allow_private` is only for endpoints the user configured (SearXNG, webhooks)."""
         check_request(method, url, authenticated=bool(cookies))
         hdrs = dict(headers or {})
         if impersonate is None:
@@ -105,30 +110,36 @@ class HttpPool:
             "timeout": timeout or self.timeout,
         }
         if not cookies:
-            r = await self._session(impersonate).request(
-                method, url, allow_redirects=True, max_redirects=8, **kwargs
-            )
-            return _wrap(r, url)
-
-        # Follow redirects by hand so every hop is re-checked by the privacy jail and
-        # cookies never follow a redirect onto another site.
+            return await _follow(self._session(impersonate), method, url, kwargs,
+                                 cookies=None, allow_private=allow_private)  # fmt: skip
         async with AsyncSession(impersonate=impersonate) as s:
-            current = url
-            for _ in range(MAX_COOKIE_REDIRECTS + 1):
-                r = await s.request(
-                    method, current, cookies=cookies, allow_redirects=False, **kwargs
-                )
-                location = r.headers.get("location")
-                if r.status_code not in (301, 302, 303, 307, 308) or not location:
-                    return _wrap(r, url)
-                nxt = urljoin(current, location)
-                if registrable_domain(urlsplit(nxt).hostname) != registrable_domain(
-                    urlsplit(url).hostname
-                ):
-                    return _wrap(r, url)  # cross-site redirect: stop rather than leak cookies
-                check_request(method, nxt, authenticated=True)
-                current, kwargs["params"] = nxt, None
+            return await _follow(s, method, url, kwargs, cookies=cookies,
+                                 allow_private=allow_private)  # fmt: skip
+
+
+async def _follow(session, method, url, kwargs, *, cookies, allow_private) -> Fetched:
+    """Follow redirects by hand so every hop is re-checked by the SSRF guard and, with cookies,
+    by the privacy jail; cookies never follow a redirect onto another site."""
+    current, hops = url, MAX_COOKIE_REDIRECTS if cookies else MAX_REDIRECTS
+    for hop in range(hops + 1):
+        if not allow_private:
+            await check_resolved(current)
+        r = await session.request(method, current, cookies=cookies, allow_redirects=False,
+                                  **kwargs)  # fmt: skip
+        location = r.headers.get("location")
+        if r.status_code not in REDIRECTS or not location or hop == hops:
             return _wrap(r, url)
+        nxt = urljoin(current, location)
+        if cookies:
+            if registrable_domain(urlsplit(nxt).hostname) != registrable_domain(
+                urlsplit(url).hostname
+            ):
+                return _wrap(r, url)  # cross-site redirect: stop rather than leak cookies
+            check_request(method, nxt, authenticated=True)
+        if r.status_code == 303 or (r.status_code in (301, 302) and method.upper() == "POST"):
+            method = "GET"  # what browsers and curl do: the body is not re-sent
+            kwargs = {**kwargs, "json": None, "data": None, "multipart": None}
+        current, kwargs["params"] = nxt, None
 
 
 def _wrap(r, requested: str) -> Fetched:
