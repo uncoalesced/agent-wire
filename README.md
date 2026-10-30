@@ -13,6 +13,7 @@
   <a href="https://github.com/uncoalesced/agent-wire/actions/workflows/ci.yml"><img alt="CI" height="20" src="https://img.shields.io/github/actions/workflow/status/uncoalesced/agent-wire/ci.yml?branch=main&label=ci"></a>
   <a href="LICENSE"><img alt="MIT license" height="20" src="https://img.shields.io/badge/license-MIT-f5b884"></a>
   <a href="https://m8ven.ai/mcp/uncoalesced/agent-wire?s=readme"><img alt="M8ven Score" height="20" src="https://m8ven.ai/badge/mcp/uncoalesced/agent-wire"></a>
+  <a href="https://mcpservers.org/servers/uncoalesced/agent-wire"><img alt="Listed on mcpservers.org" height="20" src="https://mcpservers.org/badge.svg"></a>
 </p>
 
 <p align="center">
