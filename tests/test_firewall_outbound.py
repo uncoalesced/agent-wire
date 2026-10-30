@@ -67,6 +67,26 @@ def test_scrub_secrets():
     assert "&x=1" in out
 
 
+def test_scrub_api_keys():
+    # Built from parts so no secret scanner mistakes the fixtures for real keys.
+    keys = [
+        "ghp_" + "A1b2" * 9, "github_pat_" + "11ABCDEFG0" * 3, "sk-" + "proj-" + "aB3" * 10,
+        "sk-" + "ant-api03-" + "x9Y" * 10, "sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc",
+        "AKIA" + "IOSFODNN7EXAMPLE", "xoxb-" + "123456789012-abcdef", "AIza" + "SyD" * 11 + "xy",
+        "glpat-" + "x1Y2z3" * 4, "hf_" + "aBcD1" * 7, "npm_" + "a1B2" * 9,
+    ]  # fmt: skip
+    for key in keys:
+        assert scrub(f"leaked: {key}, oops") == "leaked: [REDACTED], oops", key
+
+
+def test_scrub_api_keys_leaves_lookalikes():
+    text = (
+        "use the ask-the-community-forum-for-help page, sk-learn tips, task-runner-config-file, "
+        "my_ghp_notes, AKIA alone, hf_hub_download, npm_config_cache, xox"
+    )
+    assert scrub(text) == text
+
+
 def test_scrub_private_ips_only():
     out = scrub(
         "lan 192.168.1.5, vpn 10.0.0.7, ula fd00::1, dns 8.8.8.8, local 127.0.0.1 [::1] 0.0.0.0"
