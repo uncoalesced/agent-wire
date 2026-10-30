@@ -36,5 +36,4 @@ agent-wire sits between an AI agent and the open web, so it treats two things as
 
 ## Known limitations
 
-- **Private addresses.** `wire_read`, Code Mode's `wire.read` and the citation checker don't yet refuse `localhost`, private-network or cloud-metadata URLs. A fix is in review.
-- **Secret redaction.** Output scrubbing removes bearer tokens, session cookies, private IPs and your saved vault values. It does not catch every API-key format that might appear in public page text.
+- **Secret redaction.** Output scrubbing removes bearer tokens, session cookies, private IPs, your saved vault values and well-known prefixed API keys (GitHub, OpenAI, Anthropic, AWS, Slack, Google, GitLab, Stripe, Hugging Face, npm). Keys with no recognizable prefix that appear in public page text are not caught.
