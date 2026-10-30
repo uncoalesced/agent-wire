@@ -67,7 +67,8 @@ def test_host_failure_rejects_only_that_promise():
 def test_limits():
     assert "CPU time limit" in box("while (true) {}", cpu_s=0.5).error
     assert "CPU time limit" in box("for (;;) await 0", cpu_s=0.5, wall_s=5).error  # microtasks
-    assert "out of memory" in box("const a = []; while (true) a.push('x'.repeat(1e5))").error
+    oom = "MemoryError: script exceeded its 64 MB memory limit"
+    assert box("const a = []; while (true) a.push('x'.repeat(1e5))").error == oom
     assert (
         "more than 2 wire calls"
         in box("for (let i = 0; i < 5; i++) await wire.sleep(1, i)", max_calls=2).error
@@ -75,6 +76,24 @@ def test_limits():
     assert "never settles" in box("await new Promise(() => {})").error
     assert "ran longer than" in box("await wire.sleep(2000, 1)", wall_s=0.3).error
     assert "not JSON-serializable" in box("const a = {}; a.a = a; return a").error
+
+
+def test_out_of_memory_is_named_not_null():
+    oom = "MemoryError: script exceeded its 64 MB memory limit"
+    assert box("let a = []; for (;;) a.push([a])").error == oom
+    # QuickJS rejects with a bare null when it can't allocate the error; say what that means.
+    nested = box("let a = []; for (;;) a.push({x: [1, 2, 3]})").error
+    assert nested.startswith("Uncaught: null") and "64 MB memory limit" in nested
+
+
+def test_bad_wire_arguments_point_at_the_script_line():
+    o = box("const o = {};\no.o = o;\nawait wire.sleep(1, o)")
+    assert o.error == (
+        "TypeError: wire.sleep: arguments are not JSON-serializable: circular reference (line 3)"
+    )
+    assert o.calls == 0
+    caught = box("try { await wire.sleep(1, 2n) } catch (e) { return e.name }")
+    assert (caught.text, caught.error) == ("TypeError", None)
 
 
 def test_inflight_cap_queues_extra_calls():
