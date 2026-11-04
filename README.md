@@ -430,52 +430,65 @@ Tokens are the cost an agent feels first: money on an API plan, rate limits on a
 
 ### What a page costs
 
-We read a set of pages cold, from India, with a fresh `WIRE_HOME`, on 2026-10-20 (v0.2.1), and counted tokens with tiktoken. "Raw HTML" is what a plain fetch returned. Six of the pages are below.
+On 2026-11-04 we read 16 pages from India, three times each, every time cold with a fresh `WIRE_HOME`, on the `dev` branch after v0.2.3 (commit `e7077af`). Tokens are counted with tiktoken (`o200k_base`), and the agent-wire count includes its header line, since that reaches the model too. "Plain fetch" is one ordinary GET with a browser user agent. [Jina Reader](https://jina.ai/reader/) is the free `r.jina.ai` endpoint with no key, which is what Agent-Reach uses first for web reads.
 
-| Page | Raw HTML tokens | agent-wire tokens | Saved |
-|---|---|---|---|
-| GitHub issue (uv #1495) | 197,594 | 2,066 | 99% |
-| YouTube video page | ~533,000 | 3,040 | 99% |
-| Wikipedia (Model Context Protocol) | 79,926 | 1,868 | 98% |
-| dev.to/t/ai | 52,636 | 835 | 98% |
-| docs.python.org asyncio page | 50,059 | 2,989 | 94% |
-| arXiv abstract (Attention Is All You Need) | 12,961 | 3,031 | 77% |
+| Page | Plain fetch | Jina Reader | agent-wire | Saved vs plain |
+|---|---|---|---|---|
+| GitHub issue (uv #1495) | 184,922 | failed (403) | 2,066 | 99% |
+| GitHub repo README (uv) | 152,386 | failed (403) | 3,003 | 98% |
+| YouTube video page | 630,615 | failed (bot check) | 3,031 | 99.5% |
+| Wikipedia (Model Context Protocol) | 80,494 | 8,326 | 1,868 | 98% |
+| dev.to/t/ai | 56,834 | 12,290 | 1,017 | 98% |
+| Cloudflare blog post | 105,755 | 2,369 | 2,051 | 98% |
+| MDN Fetch API | 41,251 | 1,355 | 633 | 98% |
+| Bluesky profile | 15,673 | 142 | 756 | 95% |
+| Hacker News thread | 32,712 | 16,656 | 1,933 | 94% |
+| docs.python.org asyncio | 6,941 | 883 | 584 | 92% |
+| arXiv abstract (Attention Is All You Need) | 12,961 | 772 | 3,031 | 77% |
+| Stack Overflow question | blocked (403) | 25,821 | 2,211 | |
+| Medium post | blocked (403) | failed (403) | 2,827 | |
+| Reddit r/Python | blocked | failed (blocked) | 2,395 | |
+| npm package page (react) | blocked (403) | failed (CAPTCHA) | 123 | |
+| Cloudflare challenge page (nowsecure.nl) | challenge page | 52 | 87 | |
 
-Across the benchmark set the typical saving was 94% (the median, counting only pages where a plain fetch worked), and the arXiv abstract was the weakest case. Hacker News, Stack Overflow and Medium refused the plain fetch outright, so there is no raw count to compare against. agent-wire read all three.
-
-A cold read of one URL took about 1.4 to 1.9 seconds at the median, from 0.15 seconds (dev.to) to about 10 seconds (Reddit through the archive fallback). One search that auto-reads its top hits took about 2.3 seconds and returned around 2,400 tokens.
+- **Pages read:** agent-wire 16 of 16, Jina Reader 10 of 16, plain fetch 11 of 16.
+- **Saving vs plain fetch:** median 98% on the 11 pages a plain fetch could read. The arXiv abstract was the weakest at 77%, because agent-wire opens the full paper rather than the abstract page and fills its token budget from it.
+- **Against Jina Reader:** on the 10 pages both could read, agent-wire returned 14,171 tokens in total and Jina 68,666, so 79% fewer, and fewer on 7 of the 10. Jina was smaller on the arXiv abstract (it returns only the abstract page), the Bluesky profile (a thin cached snapshot) and the nowsecure.nl page. The comparison isn't like for like: agent-wire trims every read to a budget (3,000 tokens by default, ranked by relevance when you pass a `query`), and Jina returns the whole page. Long Hacker News and Stack Overflow threads are where that shows most.
+- **Speed:** a cold read took 0.76 seconds at the median over 48 reads, and 3.1 seconds at the 90th percentile. The slowest was the Cloudflare challenge page, which goes through the stage 4 browser: 6 to 16 seconds. Jina's median was 0.7 seconds on the pages it could read, with a few 15 to 16 second outliers.
+- **Search:** five searches that auto-read their top hits took 2.4 seconds at the median and returned about 2,500 tokens each.
 
 ### What it costs to have it installed
 
-This is the part that doesn't flatter agent-wire, so here it is plainly. On 2026-10-29 we counted what each tool puts into context before it does any work, using the `o200k_base` tokenizer. Claude's tokenizer counts differently, so read these as comparable to each other and not as an exact bill.
+This is the part that doesn't flatter agent-wire, so here it is plainly. We counted what each tool puts into context before it does any work, using the `o200k_base` tokenizer. Claude's tokenizer counts differently, so read these as comparable to each other and not as an exact bill. The agent-wire rows were re-counted on 2026-11-04 from the server's live tool list, taking each tool's name, description and input schema, which is what an API client sends to the model. That method counts a little more than the one we used on 2026-10-29 (1,603 for the standard profile then); the tools themselves haven't changed since v0.2.3.
 
 | What loads | Tokens | When |
 |---|---|---|
-| agent-wire tool definitions, standard profile (8 tools) | 1,603, plus 150 for server instructions | every session |
-| agent-wire tool definitions, `--profile local` (7 tools) | 740 | every session |
-| agent-wire tool definitions, `--code-mode` (2 tools) | 471 | every session |
-| agent-wire skill (`SKILL.md`) | 1,354 | when the skill triggers, depending on the client |
-| [last30days](https://github.com/mvanhorn/last30days-skill) skill (`SKILL.md`, v3.31.0) | 7,029 | when the skill triggers |
-| [Agent-Reach](https://github.com/Panniantong/Agent-Reach) skill (`SKILL.md`) | 1,933 | when the skill triggers |
+| agent-wire tool definitions, standard profile (8 tools) | 1,838, plus 150 for server instructions | every session |
+| agent-wire tool definitions, `--profile local` (7 tools) | 961 | every session |
+| agent-wire tool definitions, `--code-mode` (2 tools) | 500 | every session |
+| agent-wire tool definitions, `--profile local --code-mode` (2 tools) | 155 | every session |
+| agent-wire skill (`SKILL.md`) | 1,342 | when the skill triggers, depending on the client |
+| [last30days](https://github.com/mvanhorn/last30days-skill) skill (`SKILL.md`, v3.31.0, counted 2026-10-29) | 7,029 | when the skill triggers |
+| [Agent-Reach](https://github.com/Panniantong/Agent-Reach) skill (`SKILL.md`, counted 2026-10-29) | 1,933 | when the skill triggers |
 
-An MCP server pays its tool definitions in every session, used or not. A skill costs roughly its one-paragraph description until it triggers. So on a day you never touch the web, agent-wire is the most expensive of the three to have installed. On a day you do, the order flips: its tool list plus its skill come to about 3,100 tokens, and last30days's skill alone is about 7,000. If the 1,603 bothers you, `--profile local` and `--code-mode` cut it to 740 and 471.
+An MCP server pays its tool definitions in every session, used or not. A skill costs roughly its one-paragraph description until it triggers. So on a day you never touch the web, agent-wire is the most expensive of the three to have installed. On a day you do, the order flips: its tool list, instructions and skill come to about 3,300 tokens, and last30days's skill alone is about 7,000. If the 1,838 bothers you, `--profile local` and `--code-mode` cut it to 961 and 500, and both together to 155.
 
 The comparison isn't clean. last30days's `SKILL.md` also carries a setup wizard and formatting rules, and Agent-Reach's is largely Chinese text, so its count isn't directly comparable with an English file's.
 
 ### What a task costs
 
-Code Mode is where the biggest single saving is. The bundled benchmark (`pytest -s tests/test_codemode_bench.py`) asks for the top four Hacker News threads on a topic with each thread's three best comments, offline. It counts every token that enters the model's context: the tool arguments or the script, plus every tool result.
+Code Mode is where the biggest single saving is. The task: find the top four Hacker News threads on "rust async" and give each thread's three best comments. We count every token that enters the model's context: the tool arguments or the script, plus every tool result. The live run is from 2026-11-04 (three cold runs, same result each time); the offline one is the bundled benchmark (`pytest -s tests/test_codemode_bench.py`) on canned pages.
 
-| Route | Context tokens | Round trips |
-|---|---|---|
-| Classic tools (one search, one batched read) | 3,394 | 2 |
-| `wire_run` script | 468 | 1 |
+| Route | Context tokens, live | Context tokens, offline | Round trips |
+|---|---|---|---|
+| Classic tools (one search, one batched read) | 2,864 | 3,394 | 2 |
+| `wire_run` script | 459 | 468 | 1 |
 
-That is 86% fewer. On a live run over Reddit and Hacker News, a script fetched 41,005 tokens of pages and returned 61 to the model.
+That is 84% fewer live and 86% offline. In the live run the script's two calls pulled in 210,569 tokens of pages, and 297 tokens of answer came back to the model; the whole script took about 2.4 seconds. A second script that read r/LocalLLaMA and the Hacker News front page in parallel fetched 13,469 tokens and returned 569.
 
 ### What we didn't measure
 
-We have not run last30days or Agent-Reach against agent-wire on the same pages, so we have no per-page or per-task comparison to show. Neither project publishes per-run token figures in its README (we checked both), so there was nothing to quote either.
+We have not run last30days or Agent-Reach themselves against agent-wire on the same pages. The Jina Reader column above covers the first step of Agent-Reach's web reads, not the whole tool, and we have no per-task comparison with either. Neither project publishes per-run token figures in its README (we checked both), so there was nothing to quote either.
 
 What their own docs say is structural. Agent-Reach tries an ordered list of tools for each action (web reads go to Jina Reader first, then Exa) and returns what they produce. Its README says some channels, such as Xueqiu, V2EX and GitHub, come back as organized content, but it describes no token budget or slicing step. last30days collects and ranks evidence across sources, and its `SKILL.md` has the host model write the brief from that evidence, so the evidence lands in your context and the model's brief is output tokens on top. Those are differences in design, not measurements, and either could be smaller than it looks.
 
@@ -606,6 +619,24 @@ A cookie-bearing request may only read (GET or HEAD). Account paths such as `/me
 Pages get the opposite treatment. Anything a person reading the page couldn't see is removed before extraction: `display:none`, zero-size or off-screen text, `aria-hidden` blocks, HTML comments, and Unicode tag, zero-width and bidi characters. Code blocks and visible text are kept as they are, so a tutorial about prompt injection still reads correctly. In user comments, fake control tags such as `</tool_result>` or `<|im_start|>` are escaped, and a page can't close the `UNTRUSTED_EXTERNAL_DATA` block early.
 
 Logins you add with `wire auth login <site>` live in an AES-GCM vault whose key is protected by Windows DPAPI, or by a 0600 key file on macOS and Linux.
+
+### Supply chain
+
+A lot of recent malware has arrived through package registries: a hijacked npm package, or a post-install script that runs the moment you install something. Here is what agent-wire pulls in and how it gets to you, as of a scan on 2026-11-04.
+
+- **No npm, no Node.** agent-wire is a Python package on PyPI. `uvx` or `pip` installs it, and nothing runs `npm` or `npx`.
+- **No install scripts.** Every package in the lockfile ships prebuilt wheels, and installing a wheel unpacks files without running any of its code. Only the optional extras fetch more later, and only when you ask: `stealth` needs `playwright install chromium`, and `local-whisper` downloads a speech model on first use.
+- **Small direct list.** 13 direct dependencies (12 on Python 3.13 and newer), all long-standing projects. The youngest is `quickjs-ng`, the Code Mode sandbox engine, first released in February 2026. With everything they pull in, that is 94 packages, or 117 with every optional extra.
+- **Pinned and hashed.** `uv.lock` pins every package to one version with sha256 hashes, and CI installs from it. `pip install` and `uvx` resolve fresh versions within the ranges in `pyproject.toml`, so if you want our exact set, install from a checkout with `uv sync --locked`.
+- **Scanned.** `pip-audit` over the full locked set (runtime plus every extra) found one advisory: CVE-2026-119284 in `joserfc`, pulled in through `fastmcp`. agent-wire never parses the JSON web tokens it concerns, and the lock now uses the fixed version, so there are no known vulnerabilities. Bandit found nothing at medium severity or above, and zizmor finds nothing in the workflows. CodeQL flagged six host checks that matched by substring (so `evilnpmjs.com` counted as npm); those now match the exact host or its subdomains. Cookies were never at risk, because the vault picks them by the real request host.
+- **Routine upgrades wait.** Dependabot holds routine dependency and Actions upgrades for 7 days after a release, so a hijacked version usually gets yanked before we take it. Security fixes still arrive straight away.
+- **Releases you can check.** Releases are built and uploaded by GitHub Actions through PyPI Trusted Publishing, so no upload token exists to steal. Each file on PyPI carries a signed attestation that ties it to `release.yml` in this repository. Actions are pinned to commit SHAs, and every pull request runs `pip-audit`, bandit, zizmor, dependency review and CodeQL.
+
+To check a release yourself:
+
+```bash
+uvx --from pypi-attestations pypi-attestations verify pypi --repository https://github.com/uncoalesced/agent-wire pypi:agent_wire_cli-0.2.3-py3-none-any.whl
+```
 
 ## Privacy Policy
 
