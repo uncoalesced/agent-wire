@@ -3,7 +3,14 @@
 import re
 from urllib.parse import quote, urlsplit
 
-from agent_wire.channels.base import Channel, WireUnsupported, assigned_json, script_json, ts
+from agent_wire.channels.base import (
+    Channel,
+    WireUnsupported,
+    assigned_json,
+    on_host,
+    script_json,
+    ts,
+)
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.media.subtitle_cleaner import parse_captions, to_paragraphs
 
@@ -44,9 +51,9 @@ class DouyinTikTokChannel(Channel):
 
     async def read(self, url, *, query=None, section=None, include_comments=True):
         host = urlsplit(url).hostname or ""
-        if "tiktok.com" in host:
+        if on_host(host, "tiktok.com"):
             return await self._tiktok(url)
-        if host.startswith("v.douyin.com"):
+        if host == "v.douyin.com":
             url = (await self.fetch(url, archive=False, browser=False)).url
         m = re.search(r"/(?:video|note)/(\d+)", urlsplit(url).path)
         if not m:
