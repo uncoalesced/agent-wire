@@ -6,7 +6,7 @@ from urllib.parse import quote, urlsplit
 from curl_cffi.requests.exceptions import RequestException
 from selectolax.lexbor import LexborHTMLParser
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown
+from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, on_host
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.models import WireSearchHit
 
@@ -33,7 +33,7 @@ class HubsChannel(Channel):
         host, segs = (p.hostname or "").removeprefix("www."), [s for s in p.path.split("/") if s]
         if host == "pypi.org" and segs[:1] == ["project"] and len(segs) > 1:
             return await self._pypi(url, segs[1], segs[2] if len(segs) > 2 else None)
-        if host.endswith("npmjs.com") and segs[:1] == ["package"] and len(segs) > 1:
+        if on_host(host, "npmjs.com") and segs[:1] == ["package"] and len(segs) > 1:
             name = "/".join(segs[1:3]) if segs[1].startswith("@") else segs[1]
             return await self._npm(url, name)
         if host == "crates.io" and segs[:1] == ["crates"] and len(segs) > 1:
