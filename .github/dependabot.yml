@@ -1,7 +1,8 @@
 version: 2
 updates:
   # Python dependencies in uv.lock. Security fixes come as separate PRs straight away
-  # (Dependabot security updates); this keeps routine upgrades to one weekly batch.
+  # (Dependabot security updates); this keeps routine upgrades to one weekly batch. Routine
+  # upgrades wait 7 days after a release, so a hijacked version is usually pulled before we take it.
   - package-ecosystem: uv
     directory: /
     target-branch: dev
@@ -13,6 +14,8 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
 
   # Actions are pinned to commit SHAs; this bumps the SHA and the version comment together.
   - package-ecosystem: github-actions
