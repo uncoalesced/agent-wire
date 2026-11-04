@@ -82,6 +82,26 @@ _SECRET = re.compile(
     r"|cf_clearance|web_session|SESSDATA|__Secure-[\w-]+|__Host-[\w-]+)=)[^;\s\"'&]+",
     re.IGNORECASE,
 )
+# Well-known API-key formats a page might quote (leaked keys in issues, pastes, docs).
+# Prefixed formats only, so ordinary words and hashes stay readable.
+_KEY_HINTS = (
+    "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "sk-", "_live_", "AKIA", "ASIA",
+    "xox", "AIza", "glpat-", "hf_", "npm_",
+)  # fmt: skip
+_API_KEY = re.compile(
+    r"(?<![\w-])(?:"
+    r"gh[pousr]_[A-Za-z0-9]{36,}"
+    r"|github_pat_[A-Za-z0-9_]{22,}"
+    r"|sk-(?:ant-|proj-)?(?=[\w-]*\d)[A-Za-z0-9_-]{20,}"  # needs a digit: skip prose slugs
+    r"|[sr]k_live_[A-Za-z0-9]{20,}"
+    r"|A(?:KIA|SIA)[A-Z0-9]{16}"
+    r"|xox[abprs]-[A-Za-z0-9-]{10,}"
+    r"|AIza[A-Za-z0-9_-]{35}"
+    r"|glpat-[A-Za-z0-9_-]{20,}"
+    r"|hf_[A-Za-z0-9]{30,}"
+    r"|npm_[A-Za-z0-9]{36}"
+    r")(?![\w-])"
+)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b")
 # Charset-first patterns let `re` skip ahead fast; boundaries are checked in _ip_repl instead.
 _IPV4 = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}")
@@ -110,6 +130,8 @@ def scrub(text: str, *, authenticated: bool = False, known_secrets: tuple[str, .
     lower = text.lower()
     if "bearer" in lower or "cookie" in lower or any(n in lower for n in _SECRET_NAMES):
         text = _SECRET.sub(lambda m: next(g for g in m.groups() if g) + "[REDACTED]", text)
+    if any(h in text for h in _KEY_HINTS):
+        text = _API_KEY.sub("[REDACTED]", text)
     if authenticated and "@" in text:
         text = _EMAIL.sub("[EMAIL]", text)
     text = _IPV4.sub(_ip_repl, text)

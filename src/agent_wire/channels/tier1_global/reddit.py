@@ -15,7 +15,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 import defusedxml.ElementTree as ET  # untrusted feeds: no entity expansion, no DTDs
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, ts
+from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, on_host, ts
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.firewall.outbound_privacy import parse_json
 from agent_wire.models import WireComment, WireSearchHit
@@ -95,7 +95,7 @@ def listing_items(data: dict) -> list[dict]:
 
 
 def post_hit(d: dict, archived: bool = False) -> WireSearchHit:
-    link = None if d.get("is_self") or "reddit.com" in (d.get("url") or "") else d.get("url")
+    link = None if d.get("is_self") or on_host(d.get("url") or "", "reddit.com") else d.get("url")
     return WireSearchHit(
         url=WWW + d.get("permalink", ""), title=d.get("title") or "",
         snippet="" if d.get("selftext") in ("[removed]", "[deleted]") else (d.get("selftext") or "")[:300],

@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 import trafilatura
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, ts
+from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, on_host, ts
 from agent_wire.compression.anchor_slicer import parse_line_anchor, slice_lines, slice_section
 from agent_wire.firewall.inbound_shield import clean_html
 from agent_wire.models import WireDocument
@@ -87,7 +87,7 @@ class WebChannel(Channel):
         if anchor:
             body = slice_section(body, anchor) or body
         meta = {"site": info["site"]} if info["site"] else {}
-        if f.stage == 3 and "web.archive.org" in f.url:
+        if f.stage == 3 and on_host(f.url, "web.archive.org"):
             meta["archived"] = f.url
         return self.doc(
             f, url, title=info["title"], author_handle=info["author"],

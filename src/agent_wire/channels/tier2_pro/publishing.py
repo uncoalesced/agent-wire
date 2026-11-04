@@ -2,7 +2,7 @@
 
 from urllib.parse import urlsplit
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, ts
+from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, on_host, ts
 from agent_wire.channels.tier1_global.web import extract_article
 from agent_wire.engine.waterfall import WireFetchError, wayback_snapshot
 from agent_wire.models import WireComment
@@ -66,7 +66,7 @@ class PublishingChannel(Channel):
 
     async def feed(self, target, *, sort="hot", limit=10):
         t = target.strip().rstrip("/")
-        if t.startswith("@") or "medium.com" in t:
+        if t.startswith("@") or on_host(t, "medium.com"):
             handle = t.split("medium.com/")[-1]
             return await self.ctx.channel("rss").feed(
                 f"https://medium.com/feed/{handle}", limit=limit

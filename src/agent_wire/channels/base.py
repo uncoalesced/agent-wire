@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
+from urllib.parse import urlsplit
 
 from selectolax.lexbor import LexborHTMLParser
 
@@ -77,6 +78,12 @@ class Channel:
             fields.setdefault("auth", f.auth)
             fields.setdefault("raw_bytes", len(f.content))
         return WireDocument(url=url, channel=self.name, **fields)
+
+
+def on_host(url: str, domain: str) -> bool:
+    """URL (or bare host) is `domain` or a subdomain of it; look-alikes like evil-domain.com don't match."""
+    host = (urlsplit(url if "//" in url else f"https://{url}").hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
 
 
 def ts(value) -> datetime | None:

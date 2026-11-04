@@ -58,9 +58,21 @@ _PRELUDE = r"""
   const pending = Object.create(null), logs = [];
   let queue = [], next = 0, logSize = 0, out = null;
   class WireError extends Error { constructor(m) { super(m); this.name = "WireError"; } }
-  const call = (name, args) => new P((res, rej) => {
-    const id = ++next; pending[id] = {res, rej}; queue[queue.length] = [id, name, args];
-  });
+  // Frames 1-3 (callerLine, call, the wire.* wrapper) are the prelude; frame 4 is the script.
+  const callerLine = () => { const s = new Err().stack || "", re = /<input>:(\d+)/g;
+    re.exec(s); re.exec(s); re.exec(s); const m = re.exec(s); return m ? +m[1] : null; };
+  const call = (name, args) => {
+    // Serialized now, so a bad argument throws at the script's call site (catchable there)
+    // instead of failing the host's drain later.
+    let json;
+    try { json = stringify(args); } catch (e) {
+      const err = new TypeError(`wire.${name}: arguments are not JSON-serializable: ${e.message}`);
+      err.at = callerLine(); throw err;
+    }
+    return new P((res, rej) => {
+      const id = ++next; pending[id] = {res, rej}; queue[queue.length] = `[${id},"${name}",${json}]`;
+    });
+  };
   const show = x => { if (typeof x === "string") return x;
     try { return stringify(x); } catch (e) { return String(x); } };
   const log = (...a) => { if (logSize > LOG_CAP) return;
@@ -75,10 +87,11 @@ _PRELUDE = r"""
       catch (e) { out = {error: "TypeError: return value is not JSON-serializable: " + e.message}; }
     }, e => {
       out = e instanceof Err
-        ? {error: `${e.name}: ${e.message}`, line: e instanceof WireError ? null : line(e)}
-        : {error: "Uncaught: " + show(e)};
+        ? {error: `${e.name}: ${e.message}`, line: e instanceof WireError ? null : e.at ?? line(e)}
+        : {error: "Uncaught: " + show(e), oom: e === null};
     }]),
-    drain: () => { const q = queue; queue = []; return stringify(q); },
+    drain: () => { let s = ""; for (let i = 0; i < queue.length; i++) s += (i ? "," : "") + queue[i];
+      queue = []; return "[" + s + "]"; },
     settle: (id, ok, payload) => {
       const p = pending[id]; delete pending[id];
       ok ? p.res(parse(payload)) : p.rej(new WireError(payload));
@@ -103,12 +116,19 @@ def _clean(s: str) -> str:
     return _SURROGATE.sub("�", s)
 
 
-def _js_error(exc: quickjs.JSException) -> str:
+def _oom(limits: Limits) -> str:
+    return f"MemoryError: script exceeded its {limits.memory_bytes >> 20} MB memory limit"
+
+
+def _js_error(exc: quickjs.JSException, limits: Limits) -> str:
     """First line of a QuickJS exception plus the script line it points at."""
     msg = str(exc).strip()
     first = msg.splitlines()[0] if msg else "Error"
     if "interrupted" in first:
         return CPU_LIMIT
+    # QuickJS throws a bare null when it can't even allocate the error object.
+    if first == "null" or "out of memory" in first:
+        return _oom(limits)
     m = re.search(r"<input>:(\d+)", msg)
     return f"{first} (line {m.group(1)})" if m else first
 
@@ -165,10 +185,14 @@ async def run(
         if "error" in result:
             line = result.get("line")
             out.error = _clean(result["error"]) + (f" (line {line})" if line else "")
+            if "out of memory" in out.error:
+                out.error = _oom(limits)
+            elif result.get("oom"):  # `throw null` looks the same as a failed allocation
+                out.error += f" (if the script built large data, it may have hit its {limits.memory_bytes >> 20} MB memory limit)"
     except TimeoutError:
         out.error = f"TimeoutError: script ran longer than {limits.wall_s:g}s"
     except quickjs.JSException as e:
-        out.error = _js_error(e)
+        out.error = _js_error(e, limits)
     except _Abort as e:
         out.error = str(e)
     except Exception as e:  # noqa: BLE001 - whatever the script did, wire_run answers, never raises
