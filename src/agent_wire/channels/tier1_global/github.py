@@ -9,7 +9,7 @@ from urllib.parse import quote, urlsplit
 
 from selectolax.lexbor import LexborHTMLParser
 
-from agent_wire.channels.base import Channel, WireUnsupported, compact_count, listing, ts
+from agent_wire.channels.base import Channel, WireUnsupported, compact_count, listing, on_host, ts
 from agent_wire.compression.anchor_slicer import parse_line_anchor, slice_lines, slice_section
 from agent_wire.models import WireComment, WireDocument, WireSearchHit
 
@@ -85,7 +85,7 @@ class GitHubChannel(Channel):
         parts = urlsplit(url)
         host, segs = parts.hostname or "", [s for s in parts.path.split("/") if s]
         anchor = section or parts.fragment or None
-        if host.endswith("githubusercontent.com"):
+        if on_host(host, "githubusercontent.com"):
             return await self._blob_raw(url, segs[0], segs[1], "/".join(segs[3:]), url)
         if host == "gist.github.com" and len(segs) >= 2:
             return await self._gist(url, segs[-1])
