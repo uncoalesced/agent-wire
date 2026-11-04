@@ -4,7 +4,7 @@ import pytest
 from conftest import fetched
 from typer.testing import CliRunner
 
-from agent_wire.channels.base import WireUnsupported
+from agent_wire.channels.base import WireUnsupported, on_host
 from agent_wire.channels.tier1_global import hackernews, reddit, rss, web
 from agent_wire.channels.tier2_pro import fediverse, news, polymarket, stocktwits
 from agent_wire.compression.dam_formatter import format_comments
@@ -167,6 +167,21 @@ def test_reddit_falls_back_to_arctic_shift(make_ctx, run):
     feed = run(ctx.channel("reddit").feed("r/Python"))
     assert "Arctic Shift" in feed.title and "uv is great" in feed.body
     assert reddit.post_hit(dict(POST, selftext="[removed]")).snippet == ""
+
+
+def test_on_host_matches_subdomains_not_lookalikes():
+    for url in (
+        "https://www.reddit.com/r/x",
+        "reddit.com",
+        "old.reddit.com/r/x",
+        "https://REDDIT.com",
+    ):
+        assert on_host(url, "reddit.com")
+    assert not on_host("https://notreddit.com/r/x", "reddit.com")
+    assert not on_host("https://reddit.com.evil.io/", "reddit.com")
+    assert not on_host("https://evil.io/?u=reddit.com", "reddit.com")
+    link = dict(POST, is_self=False, url="https://evil.io/reddit.com/x")
+    assert reddit.post_hit(link).link == "https://evil.io/reddit.com/x"
 
 
 def test_reddit_arctic_retries_once_then_explains(make_ctx, run, monkeypatch):
