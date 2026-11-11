@@ -14,6 +14,7 @@ Everything lives in one local folder, `WIRE_HOME`. For the Claude plugin, that's
 | Which fetch stage worked for each site ("route memory") | `cache.db` | Ignored after 24 hours |
 | Saved logins (`wire auth login <site>`) | `vault.enc`, encrypted with AES-GCM; the key is protected by Windows DPAPI, or kept in a 0600 file (`vault.key`) on macOS and Linux | Until you run `wire auth logout <site>` |
 | Research runs, only if you pass `store=True` or use `wire watch` | `research.db` | Until you delete them |
+| Shield alerts: what agent-wire stripped, escaped or refused, where, and up to 120 characters of the page text it caught (with secrets scrubbed and URL query values removed) | `alerts.db` | Until you delete it |
 | Browser profile for the optional stage 4 browser (`[stealth]` extra) | `browser-profile/` | Until you delete it |
 | Tokenizer data downloaded on first use | `tiktoken/` | Until you delete it |
 
