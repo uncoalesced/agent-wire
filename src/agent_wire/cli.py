@@ -68,7 +68,8 @@ def serve(
     if transport == "stdio":
         server.run(show_banner=False)
     else:
-        server.run(transport=transport, port=port, show_banner=False)
+        # No auth on these transports: bind to loopback only, never all interfaces.
+        server.run(transport=transport, host="127.0.0.1", port=port, show_banner=False)
 
 
 @app.command()
@@ -414,10 +415,17 @@ def auth_login(
     _utf8()
     vault = CookieVault(init_wire_home())
     if from_browser:
+        from agent_wire.auth import cookie_vault
+
         n = asyncio.run(vault.import_from_browser(site))
-        typer.echo(
-            f"saved {n} cookies for {site}" if n else f"no {site} cookies found in local browsers"
-        )
+        if n:
+            typer.echo(f"saved {n} cookies for {site}")
+        elif cookie_vault.rookiepy is None:
+            typer.echo(f"no {site} cookies found in Firefox. Chrome, Edge and Brave need the "
+                       "browser-cookies extra: uv tool install 'agent-wire-cli[browser-cookies]'",
+                       err=True)  # fmt: skip
+        else:
+            typer.echo(f"no {site} cookies found in local browsers")
         return
     try:
         n = asyncio.run(vault.interactive_login(site))
