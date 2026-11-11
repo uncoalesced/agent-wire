@@ -1,10 +1,13 @@
 import asyncio
+import os
 
 import orjson
 import pytest
 
 from agent_wire.channels.base import Context
 from agent_wire.engine.http_pool import Fetched
+
+os.environ.setdefault("WIRE_SHIELD_NOTIFY", "0")  # tests never pop real desktop notifications
 
 
 def fetched(body, url="https://example.com/", status=200, ctype=None, requested=None) -> Fetched:
