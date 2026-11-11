@@ -1,0 +1,77 @@
+{
+  "name": "agent-wire",
+  "displayName": "Agent Wire by uncoalesced",
+  "version": "0.2.5",
+  "description": "Live web, search and platform reads for agents, compressed and shielded against prompt injection.",
+  "author": {
+    "name": "uncoalesced",
+    "url": "https://uncoalesced.com"
+  },
+  "homepage": "https://uncoalesced.com/agent-wire",
+  "repository": "https://github.com/uncoalesced/agent-wire",
+  "license": "MIT",
+  "keywords": [
+    "web",
+    "search",
+    "reddit",
+    "github",
+    "youtube",
+    "mcp",
+    "research",
+    "prompt-injection"
+  ],
+  "icon": "./assets/agent-wire-logo.png",
+  "privacyPolicyUrl": "https://github.com/uncoalesced/agent-wire/blob/main/PRIVACY.md",
+  "documentationUrl": "https://github.com/uncoalesced/agent-wire/blob/main/DOCUMENTATION.md",
+  "supportUrl": "https://github.com/uncoalesced/agent-wire/blob/main/SUPPORT.md",
+  "termsOfServiceUrl": "https://github.com/uncoalesced/agent-wire/blob/main/TERMS.md",
+  "userConfig": {
+    "github_token": {
+      "type": "string",
+      "title": "GitHub token (optional)",
+      "description": "Raises GitHub's API rate limit and enables wire_me for GitHub. Sent only to api.github.com.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "reddit_client_id": {
+      "type": "string",
+      "title": "Reddit app client ID (optional)",
+      "description": "A free 'installed app' from reddit.com/prefs/apps. Enables live Reddit reads. Sent only to reddit.com.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "reddit_client_secret": {
+      "type": "string",
+      "title": "Reddit app client secret (optional)",
+      "description": "Only for 'script' apps; installed apps have no secret. Sent only to reddit.com.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "exa_api_key": {
+      "type": "string",
+      "title": "Exa API key (optional)",
+      "description": "Adds Exa as a web search backend. Sent only to api.exa.ai.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "searxng_url": {
+      "type": "string",
+      "title": "SearXNG URL (optional)",
+      "description": "Your own SearXNG instance, used as the first web search backend.",
+      "required": false,
+      "default": ""
+    },
+    "transcribe_api_key": {
+      "type": "string",
+      "title": "Transcription API key (optional)",
+      "description": "OpenAI-compatible Whisper key for podcast audio. Used only when WIRE_TRANSCRIBE=1 is set; the audio and key go only to that API (OpenAI by default).",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    }
+  }
+}
