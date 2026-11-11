@@ -183,12 +183,34 @@ def test_manifests_are_valid():
     assert "agent_wire" in tomllib.loads((ROOT / "manifests/codex.toml").read_text())["mcp_servers"]
     for name in ("cursor_rule.mdc", "windsurf_rules.md", "hermes_skill.md"):
         assert (ROOT / "manifests" / name).read_text(encoding="utf-8").startswith("---\n")
-    plugin = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
-    assert plugin["name"] == "agent-wire"
     market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
-    assert market["plugins"][0]["source"] == "./"
-    mcp = json.loads((ROOT / ".mcp.json").read_text())["mcpServers"]["agent_wire"]
-    assert "${CLAUDE_PLUGIN_ROOT:-.}" in mcp["args"]
+    assert market["plugins"][0]["source"] == "./plugin"
+    # Repo-root .mcp.json is for developing in this checkout; the plugin ships its own.
+    dev = json.loads((ROOT / ".mcp.json").read_text())["mcpServers"]["agent_wire"]
+    assert "${CLAUDE_PLUGIN_ROOT:-.}" in dev["args"]
     worker = (ROOT / "agents/wire-worker.md").read_text(encoding="utf-8")
     assert "mcp__agent_wire__wire_read" in worker and "model: haiku" in worker
     assert ci.asset("SKILL.md") == (ROOT / "skills/agent-wire/SKILL.md").read_text(encoding="utf-8")
+
+
+def test_plugin_folder_matches_release():
+    plug = ROOT / "plugin"
+    manifest = json.loads((plug / ".claude-plugin/plugin.json").read_text())
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    assert manifest["name"] == "agent-wire" and manifest["version"] == version
+    mcp = json.loads((plug / ".mcp.json").read_text())["mcpServers"]["agent_wire"]
+    assert mcp["command"] == "uvx" and mcp["args"] == [f"agent-wire-cli=={version}", "serve"]
+    # Credentials come only from userConfig the user chose to share, never the machine.
+    options = manifest["userConfig"]
+    for env, value in mcp["env"].items():
+        if value.startswith("${user_config."):
+            assert value[len("${user_config.") : -1] in options, env
+    assert mcp["env"]["WIRE_NO_GH_CLI"] == "1"
+    assert all(o.get("default") == "" for o in options.values())  # unset options must not throw
+    worker = (plug / "agents/wire-worker.md").read_text(encoding="utf-8")
+    assert "mcp__agent_wire__" not in worker and "mcp__plugin_agent-wire_agent_wire__" in worker
+    root_skill = (ROOT / "skills/agent-wire/SKILL.md").read_bytes().replace(b"\r\n", b"\n")
+    plug_skill = (plug / "skills/agent-wire/SKILL.md").read_bytes().replace(b"\r\n", b"\n")
+    assert plug_skill == root_skill
+    assert (plug / manifest["icon"]).is_file()
+    assert all(f.stat().st_size < 256 * 1024 for f in plug.rglob("*") if f.is_file())
