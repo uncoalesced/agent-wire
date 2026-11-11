@@ -3,7 +3,7 @@
 import asyncio
 import json
 import time
-from functools import partial
+from functools import partial, wraps
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -35,6 +35,8 @@ from agent_wire.firewall.outbound_privacy import WirePrivacyBlockError, scrub
 from agent_wire.firewall.ssrf_guard import check_url
 from agent_wire.models import WireComment, WireDocument, WireSearchHit, WireTelemetry
 from agent_wire.router import ALL_PLATFORMS, route_platform, route_url
+from agent_wire.shield import Shield
+from agent_wire.shield import events as shield_events
 from agent_wire.verify import citations
 
 MAX_URLS = 10
@@ -42,6 +44,37 @@ COMMENT_SHARE = 0.5  # of a document's budget, when it has both a body and comme
 HEADER_SLACK = 60  # title / metadata / headings around the sliced body
 EXPECTED = (WireFetchError, WireUnsupported, WirePrivacyBlockError, RequestException,
             ValueError, KeyError, TimeoutError)  # fmt: skip
+
+
+def _shielded(tool: str):
+    """Run a tool method under a Shield recorder and deliver what it caught.
+
+    Delivery is the alert ledger, a stderr line, a desktop notification (Shield.finish) and the
+    trusted header line below. No MCP log message: that capability is deprecated (SEP-2577).
+    """
+
+    def deco(fn):
+        @wraps(fn)
+        async def run(self, *args, **kwargs):
+            with self.shield.watch(tool) as rec:
+                try:
+                    out = await fn(self, *args, **kwargs)
+                except BaseException:
+                    if rec is not None:
+                        self.shield.finish(rec)
+                    raise
+            if rec is None:  # nested inside another tool call: that one reports
+                return out
+            raised = self.shield.finish(rec)
+            if raised and isinstance(out, str) and out.startswith("["):  # not JSON/HTML exports
+                # After the [WIRE | ...] line, before any untrusted block: trusted territory.
+                first, _, rest = out.partition("\n")
+                out = f"{first}\n{self.shield.header(raised)}" + (f"\n{rest}" if rest else "")
+            return out
+
+        return run
+
+    return deco
 
 
 def _ids(comments: list[WireComment]) -> list[str]:
@@ -71,6 +104,7 @@ class Wire:
         self.ctx = Context(self.pool, self.waterfall, self.vault, self.ledger)
         self.buffer = RingBuffer()
         self.seen: set[str] = set()  # every link a tool returned this session, for wire_cite
+        self.shield = Shield(self.home)
 
     def _saw(self, *texts_or_urls: str) -> None:
         for t in texts_or_urls:
@@ -80,6 +114,7 @@ class Wire:
     async def close(self) -> None:
         await self.pool.close()
         self.ledger.close()
+        self.shield.close()
         if self._store is not None:
             self._store.close()
 
@@ -117,6 +152,7 @@ class Wire:
             r.run_id = data["run_id"] = self.store.save(r, md, data)
         return r, md, data
 
+    @_shielded("wire_research")
     async def research(self, topic="", days=30, platforms=None, mode="auto", depth="default",
                        as_of=None, github_user=None, emit="md", store=False, preflight=False,
                        max_tokens=None, verify_links=True) -> str:  # fmt: skip
@@ -205,6 +241,7 @@ class Wire:
 
     async def _read_one(self, url: str, query, section, include_comments):
         t0 = time.perf_counter()
+        shield_events.current_url.set(url)  # this task's events belong to this URL
         check_url(url)  # fails fast; every request hop is re-checked against DNS in HttpPool
         name = route_url(url)
         doc = await self.ctx.channel(name).read(url, query=query, section=section,
@@ -316,6 +353,7 @@ class Wire:
                 "unsourced": claims, "unchecked": dropped}  # fmt: skip
         return data, sum(len(c.excerpt) for c in checks) // 4
 
+    @_shielded("wire_run")
     async def run(self, code: str, max_tokens: int | None = None) -> str:
         """Code Mode: run one JS script against wire.* and return only what it returns."""
         from agent_wire.codemode import api, sandbox
@@ -339,6 +377,7 @@ class Wire:
         return spotlight(head, text)
 
     # ---- tools -------------------------------------------------------------------------------
+    @_shielded("wire_read")
     async def read(self, urls, query=None, section=None, include_comments=True, max_tokens=None,
                    force=False) -> str:  # fmt: skip
         urls = [urls] if isinstance(urls, str) else list(urls)
@@ -366,6 +405,7 @@ class Wire:
             )
         return "\n\n".join(out)
 
+    @_shielded("wire_search")
     async def search(self, query, platforms=None, limit=5, sort="relevance", auto_expand_top=None,
                      max_tokens=None) -> str:  # fmt: skip
         t0 = time.perf_counter()
@@ -411,6 +451,7 @@ class Wire:
                           elapsed_ms=int((time.perf_counter() - t0) * 1000))  # fmt: skip
         return envelope(t, body)
 
+    @_shielded("wire_feed")
     async def feed(self, platform, target, sort="hot", limit=10, max_tokens=2000) -> str:
         t0 = time.perf_counter()
         try:
@@ -423,6 +464,7 @@ class Wire:
         self._saw(doc.url, rendered[0])
         return self._wrap(doc, rendered, int((time.perf_counter() - t0) * 1000))
 
+    @_shielded("wire_me")
     async def me(self, platform, target="latest_posts", limit=5, max_tokens=1500) -> str:
         t0 = time.perf_counter()
         try:
@@ -434,6 +476,7 @@ class Wire:
         self._saw(doc.url, rendered[0])
         return self._wrap(doc, rendered, int((time.perf_counter() - t0) * 1000))
 
+    @_shielded("wire_cite")
     async def cite(self, text: str | list[str], check_quotes: bool = True) -> str:
         """Check an answer's sources: [[UNSOURCED]] markers, dead links, quotes, provenance."""
         t0 = time.perf_counter()
@@ -457,6 +500,7 @@ class Wire:
             f"stage-4 browser: {'available' if self.browser.available() else 'not installed (pip install agent-wire-cli[stealth])'}",
             "route cache: " + (", ".join(f"{d}→stage {s}" for d, s in routes) or "empty"),
             f"session buffer: {len(self.buffer)} pages, {self.buffer.total_bytes // 1024} KB",
+            self.shield.status_line(),
         ]  # fmt: skip
         if refresh:
             lines.append("probes: " + await self._probe())
