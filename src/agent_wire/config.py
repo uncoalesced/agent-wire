@@ -26,6 +26,9 @@ def _client_dir(path: Path) -> Path | None:
 def resolve_wire_home() -> Path:
     if env := os.environ.get("WIRE_HOME"):
         return Path(env)
+    # Claude Code's per-plugin data dir survives plugin updates; the plugin root does not.
+    if data := os.environ.get("CLAUDE_PLUGIN_DATA"):
+        return Path(data)
     if root := os.environ.get("CLAUDE_PLUGIN_ROOT"):
         return Path(root) / ".wire"
     # Run from inside a client folder, or installed into one (venv lives under it).
