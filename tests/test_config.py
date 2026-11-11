@@ -9,7 +9,14 @@ from agent_wire.config import WIRE_GITIGNORE, get_profile, init_wire_home, resol
 def clean_env(monkeypatch, tmp_path):
     monkeypatch.delenv("WIRE_HOME", raising=False)
     monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
     monkeypatch.chdir(tmp_path)
+
+
+def test_claude_plugin_data_beats_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "plugin"))
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "data"))
+    assert resolve_wire_home() == tmp_path / "data"
 
 
 def test_env_var_wins(monkeypatch, tmp_path):
