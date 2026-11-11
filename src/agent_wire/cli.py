@@ -21,6 +21,8 @@ watch_app = typer.Typer(no_args_is_help=True, help="Watched topics: re-run and r
 app.add_typer(watch_app, name="watch")
 library_app = typer.Typer(no_args_is_help=True, help="Saved research briefs: search, list, site.")
 app.add_typer(library_app, name="library")
+alerts_app = typer.Typer(help="Shield alerts: prompt injections and refused requests.")
+app.add_typer(alerts_app, name="alerts")
 
 Profile = Annotated[str, typer.Option("--profile", help="standard, or local for small-VRAM models")]
 
@@ -454,6 +456,114 @@ def auth_logout(site: str) -> None:
 
     removed = CookieVault(init_wire_home()).remove(site)
     typer.echo(f"removed {site}" if removed else f"no saved session for {site}")
+
+
+# ---- shield alerts ------------------------------------------------------------------------------
+def _alert_ledger():
+    from agent_wire.config import init_wire_home
+    from agent_wire.shield.ledger import AlertLedger
+
+    return AlertLedger(init_wire_home() / "alerts.db")
+
+
+def _alert_row(r: dict) -> str:
+    from datetime import datetime
+
+    from agent_wire.shield.events import TIER_NAMES, host_of, sanitize
+
+    when = datetime.fromtimestamp(r["ts"]).strftime("%Y-%m-%d %H:%M:%S")  # local time
+    # Sanitize each stored field (the database may have been edited), then pad the columns.
+    where = sanitize(host_of(r["url"]) or r["channel"] or "-", 80)
+    action, rule, tool = (sanitize(str(r[k]), 40) for k in ("action", "rule_id", "tool"))
+    tier = TIER_NAMES.get(r["tier"], "?").upper()
+    return f"#{r['id']:<4} {when}  {tier:<5}  {action:<12}  {rule:<24} {where}  {tool}"
+
+
+@alerts_app.callback(invoke_without_command=True)
+def alerts_list(
+    ctx: typer.Context,
+    limit: Annotated[int, typer.Option("--limit", "-n")] = 20,
+    all_events: Annotated[
+        bool, typer.Option("--all", help="include info events (verbose mode)")
+    ] = False,
+) -> None:
+    """Recent alerts, newest first."""
+    if ctx.invoked_subcommand:
+        return
+    _utf8()
+    rows = _alert_ledger().recent(limit, min_tier=0 if all_events else 1)
+    typer.echo(
+        "\n".join(_alert_row(r) for r in rows) if rows else "no alerts yet (try: wire alerts demo)"
+    )
+
+
+@alerts_app.command("show")
+def alerts_show(alert_id: int) -> None:
+    """Everything recorded about one alert, including the page text it caught."""
+    from datetime import datetime
+
+    from agent_wire.shield.events import TIER_NAMES, sanitize
+
+    _utf8()
+    r = _alert_ledger().get(alert_id)
+    if r is None:
+        typer.echo(f"no alert #{alert_id}", err=True)
+        raise typer.Exit(1)
+    when = datetime.fromtimestamp(r["ts"]).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    fields = [("when", when), ("tier", TIER_NAMES[r["tier"]]), ("action", r["action"]),
+              ("what", r["technique"]), ("rule", r["rule_id"]), ("layer", r["layer"]),
+              ("tool", r["tool"]), ("url", r["url"]), ("where", r["location"]),
+              ("page text", r["snippet"]), ("decoded", r["decoded"]),
+              ("chars removed", str(r["bytes_removed"] or "")), ("session", r["session_id"])]  # fmt: skip
+    for k, v in fields:
+        if v:
+            # Stored text is already sanitized; do it again in case the database was edited.
+            typer.echo(f"{k:>13}: {sanitize(str(v), 400)}")
+    if r["action"] == "flagged-only":
+        typer.echo("\nThis text was visible on the page, so it stayed in the quoted content the "
+                   "model saw. It was marked as untrusted data, not removed.")  # fmt: skip
+
+
+@alerts_app.command("tail")
+def alerts_tail(interval: float = 1.0) -> None:
+    """Print new alerts as they arrive (Ctrl+C to stop)."""
+    import time
+
+    _utf8()
+    ledger = _alert_ledger()
+    last = ledger.last_id()
+    typer.echo(f"watching {ledger.path} (Ctrl+C to stop)")
+    try:
+        while True:
+            for r in ledger.after(last):
+                typer.echo(_alert_row(r))
+                last = r["id"]
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
+
+
+@alerts_app.command("verify")
+def alerts_verify() -> None:
+    """Check the alert ledger's hash chain."""
+    ok, bad = _alert_ledger().verify()
+    typer.echo("alert ledger intact" if ok else f"alert ledger was edited at or before #{bad}")
+    if not ok:
+        raise typer.Exit(1)
+
+
+@alerts_app.command("demo")
+def alerts_demo() -> None:
+    """Run the shield on a bundled page with hidden injections and show the alerts it raises."""
+    from agent_wire.config import init_wire_home
+    from agent_wire.shield.demo import run_demo
+
+    _utf8()
+    text, raised = run_demo(init_wire_home())
+    typer.echo("What the model receives:\n")
+    typer.echo(text)
+    typer.echo(f"\n{len(raised)} alerts recorded. A desktop notification was sent for the first "
+               "one (others from the same site are grouped). Details: wire alerts show <id>")  # fmt: skip
 
 
 if __name__ == "__main__":
