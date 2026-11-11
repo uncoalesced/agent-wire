@@ -620,7 +620,25 @@ agent-wire never reads your browsers on its own. The only cookies it sends are o
 
 A cookie-bearing request may only read (GET or HEAD). Account paths such as `/messages`, `/settings`, `/billing` and `/password` are refused before anything leaves your machine, and cookies never follow a redirect to another site. JSON from logged-in requests has keys like `viewer`, `email` and `csrf_token` removed, and the final text is scrubbed for bearer tokens, session cookies and private IP addresses.
 
-Pages get the opposite treatment. Anything a person reading the page couldn't see is removed before extraction: `display:none`, zero-size or off-screen text, `aria-hidden` blocks, HTML comments, and Unicode tag, zero-width and bidi characters. Code blocks and visible text are kept as they are, so a tutorial about prompt injection still reads correctly. In user comments, fake control tags such as `</tool_result>` or `<|im_start|>` are escaped, and a page can't close the `UNTRUSTED_EXTERNAL_DATA` block early.
+Pages get the opposite treatment. Anything a person reading the page couldn't see is removed before extraction: `display:none`, zero-size, clipped, transparent or off-screen text (inline, through the page's own stylesheet, or through the usual `sr-only` / `visually-hidden` / `hidden` classes), `aria-hidden` blocks, HTML comments, and Unicode tag, zero-width and bidi characters, including ones written as HTML entities. Code blocks and visible text are kept as they are, so a tutorial about prompt injection still reads correctly. In user comments, fake control tags such as `</tool_result>` or `<|im_start|>` are escaped, and a page can't close the `UNTRUSTED_EXTERNAL_DATA` block early.
+
+**Shield Alerts.** When a page tries to steer the agent, you find out without reading the transcript:
+
+- **Desktop notification.** A Windows, macOS or Linux notification, grouped per site.
+- **stderr line.** For clients that show server logs.
+- **Line above the quoted content.** A trusted `[WIRE SHIELD | ...]` line, outside the untrusted block.
+- **Local record.** Each alert is saved in `WIRE_HOME/alerts.db`.
+
+Alerts carry no page text, only what agent-wire did and where. `wire alerts` lists them, `wire alerts show <id>` shows the text that was caught and where on the page it was, `wire alerts tail` follows new ones, and `wire alerts demo` runs the shield on a bundled page so you can see one.
+
+Each alert states what happened:
+
+- `stripped`: hidden text removed before the model saw it.
+- `escaped`: a forged marker neutralized.
+- `refused`: a request never sent, such as a private address or a logged-in write.
+- `flagged-only`: visible text that names agent-wire's tools or tells the model to hide something from you. It stays in the quoted content, because removing visible text would censor the page.
+
+A page that only quotes "ignore previous instructions" in plain view doesn't raise an alert. Set `WIRE_SHIELD_NOTIFY=0` to turn notifications off, or `WIRE_SHIELD_VERBOSE=1` to also record every routine removal. The full design is in [DOCUMENTATION.md](DOCUMENTATION.md#shield-alerts).
 
 Logins you add with `wire auth login <site>` live in an AES-GCM vault whose key is protected by Windows DPAPI, or by a 0600 key file on macOS and Linux.
 
