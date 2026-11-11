@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "agent_wire": {
+      "command": "uvx",
+      "args": ["agent-wire-cli==0.2.5", "serve"],
+      "env": {
+        "WIRE_NO_GH_CLI": "1",
+        "GITHUB_TOKEN": "${user_config.github_token}",
+        "REDDIT_CLIENT_ID": "${user_config.reddit_client_id}",
+        "REDDIT_CLIENT_SECRET": "${user_config.reddit_client_secret}",
+        "EXA_API_KEY": "${user_config.exa_api_key}",
+        "WIRE_SEARXNG_URL": "${user_config.searxng_url}",
+        "WIRE_TRANSCRIBE_API_KEY": "${user_config.transcribe_api_key}"
+      }
+    }
+  }
+}
