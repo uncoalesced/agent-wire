@@ -566,5 +566,35 @@ def alerts_demo() -> None:
                "one (others from the same site are grouped). Details: wire alerts show <id>")  # fmt: skip
 
 
+@app.command()
+def selftest(
+    live: Annotated[
+        bool, typer.Option("--live", help="Also probe every real site (needs network)")
+    ] = False,
+    only: Annotated[
+        str | None, typer.Option("--only", help="One group or check, e.g. mcp, shield, reddit")
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print results as JSON")] = False,
+) -> None:
+    """Check every subsystem: channels, firewall, shield, compression, cache, Code Mode, MCP."""
+    import json
+
+    from agent_wire import selftest as st
+
+    _utf8()
+    try:
+        results = st.run(live=live, only=only)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from e
+    if as_json:
+        typer.echo(json.dumps({"summary": st.summary(results), "results": st.as_dicts(results)},
+                              ensure_ascii=False, indent=2))  # fmt: skip
+    else:
+        typer.echo(st.render(results))
+    if st.failed(results):
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
