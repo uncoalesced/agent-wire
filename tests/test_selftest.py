@@ -41,7 +41,7 @@ def test_guard_catches_the_real_http_pool_and_sockets():
         with pytest.raises(NetworkUsed):
             socket.getaddrinfo("example.com", 443)
         socket.getaddrinfo("127.0.0.1", 80)  # loopback stays allowed (asyncio needs it)
-    assert len(attempts) == 2 and "example.com" in attempts[0]
+    assert attempts == ["HttpPool.get https://example.com/", "DNS lookup example.com"]
     assert socket.getaddrinfo is real
 
 
