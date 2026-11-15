@@ -2,6 +2,7 @@
 """Claude Directory rules: tool text describes tools, credentials come from userConfig."""
 
 import re
+from pathlib import Path
 
 from agent_wire import server
 from agent_wire.channels.tier1_global import github
@@ -17,6 +18,18 @@ def test_server_text_has_no_behavioral_directives():
     for t in texts:
         assert not DIRECTIVES.search(t), t
     assert "UNTRUSTED_EXTERNAL_DATA" in server.INSTRUCTIONS
+
+
+def test_shipped_skill_and_agent_text_has_no_overrides():
+    """The plugin's skill/agent descriptions say when they apply; they don't override the user."""
+    root = Path(__file__).resolve().parents[1] / "plugin"
+    overrides = re.compile(r"\b(automatically use|never ask the user|always use this|"
+                           r"ignore (the|any) (user|previous))\b", re.IGNORECASE)  # fmt: skip
+    files = [*root.glob("skills/*/SKILL.md"), *root.glob("agents/*.md")]
+    assert files
+    for f in files:
+        front = f.read_text(encoding="utf-8").split("---")[1]
+        assert not overrides.search(front), (f.name, overrides.search(front)[0])
 
 
 def test_no_gh_cli_guard(monkeypatch):
