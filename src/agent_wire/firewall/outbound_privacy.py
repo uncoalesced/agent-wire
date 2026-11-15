@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 
 import orjson
 
+from agent_wire.shield import events as ev
+
 
 class WirePrivacyBlockError(Exception):
     pass
@@ -39,9 +41,13 @@ def check_request(method: str, url: str, *, authenticated: bool) -> None:
     if not authenticated:
         return
     if method.upper() not in ("GET", "HEAD"):
+        ev.record("outbound", "authenticated-write", ev.T2,
+                  f"cookie-bearing {method.upper()} request", ev.REFUSED, url=url)  # fmt: skip
         raise WirePrivacyBlockError(f"authenticated {method} blocked: read-only only")
     segments = urlsplit(url).path.lower().split("/")
     if blocked := _BLOCKED_SEGMENTS.intersection(segments):
+        ev.record("outbound", "private-path", ev.T2,
+                  f"cookie-bearing request to /{min(blocked)}", ev.REFUSED, url=url)  # fmt: skip
         raise WirePrivacyBlockError(f"private account path blocked: /{min(blocked)}")
 
 

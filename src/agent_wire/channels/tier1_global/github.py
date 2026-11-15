@@ -26,6 +26,10 @@ _SKIP_PATHS = frozenset({"orgs", "settings", "notifications", "login", "marketpl
 def github_token() -> str | None:
     if token := os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"):
         return token
+    # The Claude plugin passes its token through userConfig and sets this, so the server
+    # never reads the installer's own gh login.
+    if os.environ.get("WIRE_NO_GH_CLI") == "1":
+        return None
     if gh := shutil.which("gh"):
         try:
             out = subprocess.run(

@@ -14,6 +14,7 @@ import socket
 from urllib.parse import unquote, urlsplit
 
 from agent_wire.engine.errors import WireBlockedError
+from agent_wire.shield import events as ev
 
 ALLOW_ENV = "WIRE_ALLOW_PRIVATE"
 SCHEMES = frozenset({"http", "https"})
@@ -67,6 +68,8 @@ def literal_ip(host: str) -> IP | None:
 
 def _private(url: str, ip: IP | None = None) -> WireBlockedError:
     where = f" ({ip})" if ip else ""
+    ev.record("outbound", "private-address", ev.T2, f"request to a private address{where}",
+              ev.REFUSED, url=url)  # fmt: skip
     return WireBlockedError(
         f"{url}: blocked: private address{where}; set {ALLOW_ENV}=1 to read your own network"
     )
@@ -79,6 +82,8 @@ def check_url(url: str) -> None:
     except ValueError:
         raise WireBlockedError(f"{url}: blocked: malformed URL") from None
     if parts.scheme.lower() not in SCHEMES:
+        ev.record("outbound", "non-web-scheme", ev.T2, f"{parts.scheme or 'schemeless'}: URL",
+                  ev.REFUSED, url=url)  # fmt: skip
         raise WireBlockedError(f"{url}: blocked: only http(s) URLs are read")
     host = parts.hostname
     if not host or _BAD_NETLOC.intersection(parts.netloc):

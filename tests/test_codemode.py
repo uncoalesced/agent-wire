@@ -25,8 +25,10 @@ def make_wire(tmp_path, routes, profile="standard"):
 
 
 def payload(out: str):
-    """The script's return value inside the spotlight block."""
-    return json.loads(out.split("\n")[2])
+    """The script's return value inside the spotlight block (shield lines may precede it)."""
+    lines = out.split("\n")
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("[UNTRUSTED_EXTERNAL_DATA"))
+    return json.loads(lines[start + 1])
 
 
 # ---- sandbox (fake host) ------------------------------------------------------------------------
@@ -144,6 +146,10 @@ def test_read_returns_structured_scrubbed_docs_and_records_provenance(tmp_path):
     assert d["title"] == "Guide" and "Real visible guide text." in d["body"]
     assert "abcdefghijklmnop1234" not in out and "exfiltrate" not in out
     assert citations.normalize_url("https://example.com/guide") in w.seen
+    # The hidden injection raised one alert, reported above the untrusted block.
+    alert = out.split("\n")[1]
+    assert alert.startswith("[WIRE SHIELD | ALERT | hidden instruction-like text")
+    assert out.index(alert) < out.index("[UNTRUSTED_EXTERNAL_DATA")
 
 
 def test_read_failure_is_an_entry_not_a_crash(tmp_path):

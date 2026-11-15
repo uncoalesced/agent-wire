@@ -19,20 +19,49 @@ _WORD = re.compile(r"\w+")
 _HEADING_ONLY = re.compile(r"#{1,6}\s+[^\n]*")
 
 
+class ApproxEncoding:
+    """Stand-in when the o200k_base file can't be loaded (first run with no network).
+
+    Splits like BPE pre-tokenizers do (a word keeps its leading space; punctuation and other
+    whitespace stand alone), then cuts long pieces into 6-character chunks. Errs a little high,
+    which keeps budgets safe, and `decode(encode(t)) == t` so truncation still works.
+    """
+
+    name = "approx"
+    _PIECE = re.compile(r" ?\w+|\s+|[^\w\s]")
+
+    def encode(self, text: str, **_kw) -> list[str]:
+        out = []
+        for p in self._PIECE.findall(text):
+            out += [p[i : i + 6] for i in range(0, len(p), 6)] if len(p) > 6 else [p]
+        return out
+
+    def decode(self, tokens: list[str]) -> str:
+        return "".join(tokens)
+
+
 @cache
-def _encoding() -> tiktoken.Encoding:
+def _encoding() -> "tiktoken.Encoding | ApproxEncoding":
     # tiktoken caches its BPE file in the OS temp dir by default; keep it in WIRE_HOME instead.
     cache_dir = init_wire_home() / "tiktoken"
     os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(cache_dir))
     try:
-        return tiktoken.get_encoding("o200k_base")
-    except FileExistsError:
-        # Several first runs at once (clients starting their servers together) each download the
-        # file and rename it into place; on Windows the losers' rename fails. The winner's copy is
-        # there now, so read it, and drop the losers' temp files.
-        for tmp in cache_dir.glob("*.tmp"):
-            tmp.unlink(missing_ok=True)
-        return tiktoken.get_encoding("o200k_base")
+        try:
+            return tiktoken.get_encoding("o200k_base")
+        except FileExistsError:
+            # Several first runs at once (clients starting their servers together) each download
+            # the file and rename it into place; on Windows the losers' rename fails. The winner's
+            # copy is there now, so read it, and drop the losers' temp files.
+            for tmp in cache_dir.glob("*.tmp"):
+                tmp.unlink(missing_ok=True)
+            return tiktoken.get_encoding("o200k_base")
+    except Exception:  # noqa: BLE001 - offline first run: budgets stay approximate, reads still work
+        return ApproxEncoding()
+
+
+def exact_tokens() -> bool:
+    """False while token counts are approximate (the tiktoken file could not be loaded)."""
+    return not isinstance(_encoding(), ApproxEncoding)
 
 
 def count_tokens(text: str) -> int:

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-wire-cli"
-version = "0.2.4"
+version = "0.2.5"
 description = "High-speed, privacy-first, token-compressed live web and multi-platform intelligence engine for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,10 +14,13 @@ dependencies = [
     "curl-cffi>=0.16.3",
     "defusedxml>=0.7.1",
     "fastmcp>=4.1.2",
+    # Transitive via fastmcp/authlib. Floor so a fresh `uvx` resolve can't pick a version hit by
+    # GHSA-jpxq-7h8p-2q76 (CVE-2026-119283, fixed 1.7.5) or GHSA-9pg5-8c7x-5hfx (CVE-2026-119284,
+    # fixed 1.7.6); uv.lock alone doesn't protect uvx users.
+    "joserfc>=1.8.0",
     "orjson>=3.13.0",
     "pydantic>=2.14.1",
     "quickjs-ng>=0.17.0.2",
-    "rookiepy>=0.5.6 ; python_full_version < '3.13'",  # no wheels past cp312, and the sdist won't build
     "selectolax>=1.0.0",
     "tiktoken>=0.14.0",
     "trafilatura>=2.3.1",
@@ -26,6 +29,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Reads a login from your own browser for `wire auth login <site> --from-browser`. Opt-in, so the
+# default install carries no browser-credential reader.
+browser-cookies = [
+    "rookiepy>=0.5.6 ; python_full_version < '3.13'",  # no wheels past cp312, and the sdist won't build
+]
 stealth = [
     "playwright>=1.48.0",
 ]

@@ -1,6 +1,6 @@
 import orjson
 import pytest
-from conftest import FakeWaterfall, fetched
+from conftest import FakePool, FakeWaterfall, fetched
 
 from agent_wire.channels import MODULES, channel_class
 from agent_wire.channels.base import Context, WireUnsupported, assigned_json, json_ld, meta_tags
@@ -24,21 +24,6 @@ from agent_wire.channels.tier3_regional import (
 )
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.media import audio_transcriber
-
-
-class FakePool:
-    """Stands in for HttpPool where channels need one shared cookie session."""
-
-    def __init__(self, routes):
-        self.routes = routes
-        self.calls = []
-
-    async def get(self, url, **kw):
-        self.calls.append(url)
-        for needle, resp in self.routes.items():
-            if needle in url:
-                return resp if hasattr(resp, "status") else fetched(resp, url=url)
-        return fetched(b"not found", url=url, status=404)
 
 
 def ctx_with(routes=None, pool_routes=None, vault=None):
@@ -463,6 +448,19 @@ def test_transcriber_off_by_default(run, monkeypatch):
     assert audio_transcriber.backend() is None
     with pytest.raises(audio_transcriber.TranscriptionUnavailable):
         run(audio_transcriber.transcribe(FakePool({}), "https://x/a.mp3"))
+
+
+def test_transcription_key_is_the_opt_in(monkeypatch):
+    monkeypatch.delenv("WIRE_TRANSCRIBE", raising=False)
+    monkeypatch.delenv("WIRE_TRANSCRIBE_API_KEY", raising=False)
+    assert not audio_transcriber.enabled()
+    monkeypatch.setenv("WIRE_TRANSCRIBE_API_KEY", "k")  # the plugin's transcribe_api_key option
+    assert audio_transcriber.enabled()
+    monkeypatch.setenv("WIRE_TRANSCRIBE", "0")
+    assert not audio_transcriber.enabled()
+    monkeypatch.delenv("WIRE_TRANSCRIBE_API_KEY")
+    monkeypatch.setenv("WIRE_TRANSCRIBE", "1")
+    assert audio_transcriber.enabled()
 
 
 def test_nse_falls_back_to_yahoo(run):

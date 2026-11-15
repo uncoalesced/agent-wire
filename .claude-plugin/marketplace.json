@@ -1,14 +1,14 @@
 {
   "name": "agent-wire",
-  "description": "Live web and 31-platform access for AI agents from one local MCP server: token-compressed, privacy-firewalled, injection-shielded.",
+  "description": "Agent Wire by uncoalesced: live web, search and platform reads for AI agents from one local MCP server, compressed and shielded against prompt injection.",
   "owner": {
     "name": "uncoalesced"
   },
   "plugins": [
     {
       "name": "agent-wire",
-      "source": "./",
-      "description": "Live web and 31-platform access for agents: token-compressed, privacy-firewalled, injection-shielded."
+      "source": "./plugin",
+      "description": "Live web, search and platform reads for agents, compressed and shielded against prompt injection."
     }
   ]
 }

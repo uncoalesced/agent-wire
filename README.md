@@ -3,7 +3,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner-light.png">
-    <img alt="agent-wire: agents wired to the live internet. One MCP server, 31 platforms, local." src="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png" width="100%">
+    <img alt="agent-wire: agents wired to the live internet. One local MCP server for the web and 31 platform channels." src="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png" width="100%">
   </picture>
 </p>
 
@@ -31,7 +31,9 @@
   <a href="#privacy-and-prompt-injection">Privacy</a>
 </p>
 
-agent-wire is an MCP server that lets an AI agent read the live web and 31 platforms from your own machine. Pages come back as small, clean text instead of raw HTML, your logins stay out of the model's context, and the common cases need no API keys. It's free, MIT licensed, and nothing is hosted.
+**Agent Wire by uncoalesced.** On PyPI it's `agent-wire-cli`; the Claude plugin is `agent-wire`.
+
+agent-wire is an MCP server that lets an AI agent read the live web and 31 platform channels from your own machine (most need no login; the table under "Where it works" lists the few that do). Pages come back as small, clean text instead of raw HTML, your logins stay out of the model's context, and the common cases need no API keys. It's free, MIT licensed, and nothing is hosted.
 
 > [!NOTE]
 > It's young. If a site stops parsing, please open an issue with the URL.
@@ -91,6 +93,8 @@ If you prefer the plugin, it bundles the server, a skill that tells Claude when 
 /plugin marketplace add uncoalesced/agent-wire
 /plugin install agent-wire@agent-wire
 ```
+
+The plugin starts the exact PyPI release with `uvx agent-wire-cli==<version> serve`, keeps its data in the plugin data folder Claude Code provides, and asks for optional keys (GitHub token, Reddit app, Exa, SearXNG, transcription) when you enable it. Keys you enter there go to secure storage, not to a settings file. It never reads `gh` or other credentials from your machine.
 
 Use one route or the other, not both. Restart Claude Code, then run `/mcp` and look for `agent_wire`.
 
@@ -612,11 +616,29 @@ wire run -e "return (await wire.search('sqlite wal', {platforms: ['hn', 'stackov
 
 ## Privacy and prompt injection
 
-agent-wire never reads your browsers on its own. The only cookies it sends are ones you saved for a specific site with `wire auth login <site>`, either through a login window or with `--from-browser`, which copies that one site's cookies from a browser you're already signed in to. `wire auth list` shows what's saved and `wire auth logout <site>` forgets it. Saved sessions are used for `wire_me`, for login-only sites (LinkedIn, Instagram, Xiaohongshu, X search), and when a public request hits a login wall. Link checks in `wire_cite` and `wire_research` never send saved sessions, even when a page asks for a login.
+agent-wire never reads your browsers on its own. The only cookies it sends are ones you saved for a specific site with `wire auth login <site>`, either through a login window or with `--from-browser`, which copies that one site's cookies from a browser you're already signed in to. `--from-browser` reads Firefox out of the box; Chrome, Edge and Brave need the opt-in extra `agent-wire-cli[browser-cookies]`, so the default install carries no browser-credential reader. `wire auth list` shows what's saved and `wire auth logout <site>` forgets it. Saved sessions are used for `wire_me`, for login-only sites (LinkedIn, Instagram, Xiaohongshu, X search), and when a public request hits a login wall. Link checks in `wire_cite` and `wire_research` never send saved sessions, even when a page asks for a login.
 
 A cookie-bearing request may only read (GET or HEAD). Account paths such as `/messages`, `/settings`, `/billing` and `/password` are refused before anything leaves your machine, and cookies never follow a redirect to another site. JSON from logged-in requests has keys like `viewer`, `email` and `csrf_token` removed, and the final text is scrubbed for bearer tokens, session cookies and private IP addresses.
 
-Pages get the opposite treatment. Anything a person reading the page couldn't see is removed before extraction: `display:none`, zero-size or off-screen text, `aria-hidden` blocks, HTML comments, and Unicode tag, zero-width and bidi characters. Code blocks and visible text are kept as they are, so a tutorial about prompt injection still reads correctly. In user comments, fake control tags such as `</tool_result>` or `<|im_start|>` are escaped, and a page can't close the `UNTRUSTED_EXTERNAL_DATA` block early.
+Pages get the opposite treatment. Anything a person reading the page couldn't see is removed before extraction: `display:none`, zero-size, clipped, transparent or off-screen text (inline, through the page's own stylesheet, or through the usual `sr-only` / `visually-hidden` / `hidden` classes), `aria-hidden` blocks, HTML comments, and Unicode tag, zero-width and bidi characters, including ones written as HTML entities. Code blocks and visible text are kept as they are, so a tutorial about prompt injection still reads correctly. In user comments, fake control tags such as `</tool_result>` or `<|im_start|>` are escaped, and a page can't close the `UNTRUSTED_EXTERNAL_DATA` block early.
+
+**Shield Alerts.** When a page tries to steer the agent, you find out without reading the transcript:
+
+- **Desktop notification.** A Windows, macOS or Linux notification, grouped per site.
+- **stderr line.** For clients that show server logs.
+- **Line above the quoted content.** A trusted `[WIRE SHIELD | ...]` line, outside the untrusted block.
+- **Local record.** Each alert is saved in `WIRE_HOME/alerts.db`.
+
+Alerts carry no page text, only what agent-wire did and where. `wire alerts` lists them, `wire alerts show <id>` shows the text that was caught and where on the page it was, `wire alerts tail` follows new ones, and `wire alerts demo` runs the shield on a bundled page so you can see one.
+
+Each alert states what happened:
+
+- `stripped`: hidden text removed before the model saw it.
+- `escaped`: a forged marker neutralized.
+- `refused`: a request never sent, such as a private address or a logged-in write.
+- `flagged-only`: visible text that names agent-wire's tools or tells the model to hide something from you. It stays in the quoted content, because removing visible text would censor the page.
+
+A page that only quotes "ignore previous instructions" in plain view doesn't raise an alert. Set `WIRE_SHIELD_NOTIFY=0` to turn notifications off, or `WIRE_SHIELD_VERBOSE=1` to also record every routine removal. The full design is in [DOCUMENTATION.md](DOCUMENTATION.md#shield-alerts).
 
 Logins you add with `wire auth login <site>` live in an AES-GCM vault whose key is protected by Windows DPAPI, or by a 0600 key file on macOS and Linux.
 
@@ -635,22 +657,26 @@ A lot of recent malware has arrived through package registries: a hijacked npm p
 To check a release yourself:
 
 ```bash
-uvx --from pypi-attestations pypi-attestations verify pypi --repository https://github.com/uncoalesced/agent-wire pypi:agent_wire_cli-0.2.3-py3-none-any.whl
+uvx --from pypi-attestations pypi-attestations verify pypi --repository https://github.com/uncoalesced/agent-wire pypi:agent_wire_cli-0.2.5-py3-none-any.whl
 ```
 
 ## Privacy Policy
+
+This is a summary. The full policy is [PRIVACY.md](PRIVACY.md).
 
 agent-wire runs on your machine. There's no agent-wire server, no account, no analytics and no telemetry.
 
 **What it stores.** Pages and results you ask for are processed in memory and kept in a session buffer while the server runs. Route memory is cached in `WIRE_HOME` and expires after 24 hours. If you call `wire_research` with `store=True`, the run is saved to `research.db` in `WIRE_HOME`, and it stays there until you delete it. Logins you add with `wire auth login <site>` go in an encrypted local vault (AES-GCM, with the key protected by Windows DPAPI, or a 0600 key file on macOS and Linux). Nothing is uploaded to uncoalesced. `wire auth logout <site>` removes a saved login, and deleting `WIRE_HOME` removes everything local.
 
-**Who sees your requests.** Only the services needed to answer them: the platforms you ask about, plus public fallbacks (Reddit's PullPush and Arctic Shift archives, OpenAlex, Semantic Scholar, Google News), and Exa or a SearXNG instance if you set one up. If you turn on transcription with an external API (`WIRE_TRANSCRIBE=1`), the audio goes to that API. A saved cookie goes only to the site it belongs to, only on read requests, and never follows a redirect to another site.
+**Who sees your requests.** Only the services needed to answer them: the platforms you ask about, plus public fallbacks (Reddit's PullPush and Arctic Shift archives, OpenAlex, Semantic Scholar, Google News), and Exa or a SearXNG instance if you set one up. If you turn on transcription with an external API (`WIRE_TRANSCRIBE=1`, or by setting a transcription API key), the audio goes to that API. A saved cookie goes only to the site it belongs to, only on read requests, and never follows a redirect to another site.
 
 **What your model sees.** Page text, after the scrub strips tokens, cookies, private IP addresses and, on logged-in pages, emails. Your cookies and identity never reach it.
 
 **Contact.** Questions or problems: mail@uncoalesced.com, or open an issue on GitHub.
 
 ## Terms of Use
+
+This is a summary. The full terms are [TERMS.md](TERMS.md). Help: [SUPPORT.md](SUPPORT.md).
 
 agent-wire is open-source software under the [MIT license](LICENSE), provided as is and without warranty. It runs on your machine, and you are responsible for how you use it.
 
@@ -666,11 +692,11 @@ Everything works without configuration. These are optional:
 
 | Variable | Effect |
 |---|---|
-| `WIRE_HOME` | Where the cache, route memory and vault live. By default it's a `.wire/` folder inside the agent client that started the server, falling back to `~/.config/agent-wire` or `%APPDATA%\agent-wire`. A `.gitignore` is written there so nothing gets committed. |
-| `GITHUB_TOKEN` | Higher GitHub rate limits and `wire_me github`. `gh auth token` is used automatically if it's set up. |
+| `WIRE_HOME` | Where the cache, route memory and vault live. In the Claude plugin it's the plugin's data folder. Otherwise it's a `.wire/` folder inside the agent client that started the server, falling back to `~/.config/agent-wire` or `%APPDATA%\agent-wire`. A `.gitignore` is written there so nothing gets committed. |
+| `GITHUB_TOKEN` | Higher GitHub rate limits and `wire_me github`. Outside the Claude plugin, `gh auth token` is used automatically if it's set up; `WIRE_NO_GH_CLI=1` turns that off. |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | Reddit's official app login for networks where anonymous access is blocked. |
 | `WIRE_SEARXNG_URL`, `EXA_API_KEY` | Extra web search engines. |
-| `WIRE_TRANSCRIBE=1` | Transcribe podcast audio, either locally with `agent-wire-cli[local-whisper]` or through an OpenAI-compatible API (`WIRE_TRANSCRIBE_API_KEY`, `WIRE_TRANSCRIBE_URL`, `WIRE_TRANSCRIBE_MODEL`). The API route uploads the audio, so it's opt-in. |
+| `WIRE_TRANSCRIBE=1` | Transcribe podcast audio, either locally with `agent-wire-cli[local-whisper]` or through an OpenAI-compatible API (`WIRE_TRANSCRIBE_API_KEY`, `WIRE_TRANSCRIBE_URL`, `WIRE_TRANSCRIBE_MODEL`). The API route uploads the audio, so it's opt-in: setting `WIRE_TRANSCRIBE_API_KEY` counts as opting in, and `WIRE_TRANSCRIBE=0` turns it off. |
 | `WIRE_ALLOW_PRIVATE=1` | Let reads reach private and internal addresses (localhost, LAN, link-local, `fd00::/8`). Off by default, so a prompt-injected page or script can't point agent-wire at your router or a cloud metadata endpoint. Set it only to read your own intranet. Your `WIRE_SEARXNG_URL`, transcription URL and watch webhooks are always allowed. |
 
 ## Development
@@ -683,7 +709,15 @@ uv sync --extra dev
 uv run pytest
 ```
 
-The tests run against small fixture payloads shaped like each site's real responses (a few download a tokenizer file on first run). They cover the firewalls, the fetch waterfall, every channel's parser, the research pipeline, the MCP server and the installer. CI runs them on Linux, macOS and Windows with Python 3.11 and 3.14, and builds the wheel.
+The tests run against small fixture payloads shaped like each site's real responses (a few download a tokenizer file on first run; without it, token counts fall back to an approximation). They cover the firewalls, the fetch waterfall, every channel's parser, the research pipeline, the MCP server and the installer. CI runs them on Linux, macOS and Windows with Python 3.11 and 3.14, and builds the wheel.
+
+To check a whole install at once, run the self-test. It drives every part through its real entry point: all 31 channels on canned responses, the firewalls and SSRF guard, the shield and its alert ledger, compression, the caches, the cookie vault, Code Mode, research, citations, the installers, and the MCP server both in-process and as a stdio subprocess. A guard fails the run if anything reaches the network.
+
+```bash
+wire selftest
+```
+
+`wire selftest --live` adds one real request per channel (Reddit with no API key, to show which fallback answered) and reads the 16 benchmark pages to count shield false positives. `--only <group or channel>` narrows the run, `--json` prints machine-readable results, and the exit code is 1 when any check fails. CI and the release workflow run the offline self-test.
 
 Releases are published to PyPI by `.github/workflows/release.yml` when a `v*` tag matching the version in `pyproject.toml` is pushed. It uses PyPI trusted publishing, so no token is stored in the repo.
 
