@@ -1,0 +1,22 @@
+# Lockfile anchor for the Claude plugin. `.mcp.json` launches `uvx agent-wire-cli==<version> serve`;
+# this project pins the same release so `uv.lock` next to it records every dependency with hashes.
+# Not a package: nothing here is built or installed. Bump the pin with each release, then `uv lock`.
+#
+# The plugin directory reads files up to 256 KiB, so the lock covers the platforms Claude Code
+# desktop users run (CPython 3.11-3.14 on Windows, macOS and x86-64 Linux). This limits only the
+# recorded set: `uvx` resolves from PyPI on any platform the package supports.
+[project]
+name = "agent-wire-plugin"
+version = "0.2.5"
+requires-python = ">=3.11,<3.15"
+dependencies = ["agent-wire-cli==0.2.5"]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'win32' and platform_machine == 'ARM64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
