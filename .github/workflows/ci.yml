@@ -26,7 +26,7 @@ jobs:
       - name: Install
         run: uv sync --extra dev --locked
       - name: Ruff lint
-        run: uv run ruff check src tests .github/scripts
+        run: uv run ruff check src tests
       - name: Ruff format
         run: uv run ruff format --check .
       - name: No temp-dir writes in the package
@@ -109,8 +109,6 @@ jobs:
           out=$(uvx --python ${{ matrix.python }} --from "$whl" wire run -e "return 6 * 7")
           echo "$out"
           grep -q '^42$' <<<"$out"
-      - name: MCP server over stdio (both modes)
+      - name: Self-test (every subsystem, MCP over stdio in both modes, no network)
         shell: bash
-        run: >-
-          uv run --isolated --no-project --python ${{ matrix.python }}
-          --with "$(ls dist/*.whl)" python .github/scripts/mcp_smoke.py
+        run: uvx --python ${{ matrix.python }} --from "$(ls dist/*.whl)" wire selftest
