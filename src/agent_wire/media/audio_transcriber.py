@@ -20,7 +20,12 @@ class TranscriptionUnavailable(Exception):
 
 
 def enabled() -> bool:
-    return os.environ.get("WIRE_TRANSCRIBE") == "1"
+    """Opt-in: WIRE_TRANSCRIBE=1, or a transcription API key the user set (the plugin's userConfig).
+
+    WIRE_TRANSCRIBE=0 turns it off even with a key set.
+    """
+    flag = os.environ.get("WIRE_TRANSCRIBE")
+    return flag == "1" or (flag != "0" and bool(os.environ.get("WIRE_TRANSCRIBE_API_KEY")))
 
 
 def backend() -> str | None:
