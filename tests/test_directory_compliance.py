@@ -32,6 +32,23 @@ def test_shipped_skill_and_agent_text_has_no_overrides():
         assert not overrides.search(front), (f.name, overrides.search(front)[0])
 
 
+def test_plugin_lock_pins_this_release():
+    """The directory wants a lockfile next to the manifest that declares the uvx server."""
+    import tomllib
+
+    from agent_wire import __version__
+
+    plugin = Path(__file__).resolve().parents[1] / "plugin"
+    project = tomllib.loads((plugin / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["dependencies"] == [f"agent-wire-cli=={__version__}"]
+    lock = plugin / "uv.lock"
+    assert lock.stat().st_size < 256 * 1024
+    pins = tomllib.loads(lock.read_text(encoding="utf-8"))["package"]
+    assert {"name": "agent-wire-cli", "version": __version__} in [
+        {"name": p["name"], "version": p["version"]} for p in pins
+    ]
+
+
 def test_no_gh_cli_guard(monkeypatch):
     calls = []
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
