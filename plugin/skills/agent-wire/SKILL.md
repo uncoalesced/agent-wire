@@ -1,6 +1,6 @@
 ---
 name: agent-wire
-description: Automatically use this skill whenever the user asks for live web information, wants to know what people said about a topic recently (last 30 days, trends, X vs Y), shares any URL, asks about social media posts/comments (Reddit, X/Twitter, HackerNews, LinkedIn, YouTube, Bilibili, Xiaohongshu), inspects GitHub repositories/issues, checks market/stock prices, or asks about their own social account activity (e.g., "check my Twitter likes", "my GitHub notifications"). Never ask the user to run a slash command.
+description: Use this skill when the user asks for live web information, wants to know what people said about a topic recently (last 30 days, trends, X vs Y), shares any URL, asks about social media posts/comments (Reddit, X/Twitter, HackerNews, LinkedIn, YouTube, Bilibili, Xiaohongshu), inspects GitHub repositories/issues, checks market/stock prices, or asks about their own social account activity (e.g., "check my Twitter likes", "my GitHub notifications").
 ---
 
 # Agent-Wire Execution Protocol
