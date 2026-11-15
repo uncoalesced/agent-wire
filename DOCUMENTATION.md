@@ -47,7 +47,7 @@ A saved login is sent only to its own site, only on GET or HEAD requests, never 
 | `GITHUB_TOKEN` | Higher GitHub rate limits and `wire_me github`. Outside the plugin, `gh auth token` is used if set up; `WIRE_NO_GH_CLI=1` turns that off. |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | Reddit's official app login, for networks where anonymous access is blocked. |
 | `WIRE_SEARXNG_URL`, `EXA_API_KEY` | Extra web search engines. |
-| `WIRE_TRANSCRIBE=1` (+ `WIRE_TRANSCRIBE_API_KEY`, `_URL`, `_MODEL`) | Podcast transcription, locally or through an OpenAI-compatible API. |
+| `WIRE_TRANSCRIBE=1` (+ `WIRE_TRANSCRIBE_API_KEY`, `_URL`, `_MODEL`) | Podcast transcription, locally or through an OpenAI-compatible API. Setting `WIRE_TRANSCRIBE_API_KEY` alone also turns it on; `WIRE_TRANSCRIBE=0` turns it off. |
 | `WIRE_ALLOW_PRIVATE=1` | Let reads reach private and internal addresses. Off by default. |
 | `WIRE_SHIELD_NOTIFY=0` | No desktop notifications for alerts. |
 | `WIRE_SHIELD_VERBOSE=1` | Also record every routine removal (hidden menus, zero-width spaces) in the alert ledger. |
@@ -98,6 +98,14 @@ Write `[[UNSOURCED]]` after a claim with no source, and run `wire_cite` on an an
 ## Transports
 
 `wire serve` uses stdio. `--transport http` or `sse` binds to `127.0.0.1` only and has no authentication; don't expose it to other machines.
+
+## Self-test
+
+`wire selftest` checks every subsystem in one run, offline: all 31 channels on canned responses, the inbound and outbound firewalls, the SSRF guard, Shield Alerts and the ledger, compression, the delta buffer and route ledger, the cookie vault, Code Mode, research, `wire_cite`, the client installers, and the MCP server in-process and over stdio. A guard blocks the network for the whole run and reports any attempt as a failure.
+
+- `wire selftest --live`: one real request per channel, keyless Reddit, and the shield false-positive count on the 16 README benchmark pages. Channels that need a login or the stealth browser are reported as skipped, not failed.
+- `wire selftest --only mcp` (or `shield`, `reddit`, any group or channel): run part of it.
+- `wire selftest --json`: results as JSON. Exit code 1 when a check fails.
 
 ## Policies and help
 
