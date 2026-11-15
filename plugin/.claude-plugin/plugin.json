@@ -68,7 +68,7 @@
     "transcribe_api_key": {
       "type": "string",
       "title": "Transcription API key (optional)",
-      "description": "OpenAI-compatible Whisper key for podcast audio. Used only when WIRE_TRANSCRIBE=1 is set; the audio and key go only to that API (OpenAI by default).",
+      "description": "OpenAI-compatible Whisper key for podcast audio. Setting it turns transcription on; the audio and key go only to that API (OpenAI by default).",
       "sensitive": true,
       "required": false,
       "default": ""
