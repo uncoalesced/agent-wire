@@ -28,7 +28,7 @@ agent-wire only sends requests needed to answer what you or your agent asked:
 
 - **The sites you ask it to read or search**: the web page itself, or platforms such as GitHub, Reddit, Hacker News, YouTube, X, Wikipedia, Stack Exchange, arXiv, Bluesky, Mastodon, Polymarket, Bilibili and the other channels listed in the README.
 - **Public services it uses to search and fall back**: DuckDuckGo and Brave Search for web search, Google News and Techmeme for news, the Wayback Machine (archive.org), PullPush and Arctic Shift (Reddit archives), OpenAlex and Semantic Scholar (papers), and fxtwitter, vxtwitter and X's syndication endpoint for single X posts.
-- **Services you configure yourself**: Exa (with your Exa key), your own SearXNG instance, an OpenAI-compatible transcription API (only when you set `WIRE_TRANSCRIBE=1`; the audio goes to it), and webhooks you add with `wire watch add`.
+- **Services you configure yourself**: Exa (with your Exa key), your own SearXNG instance, an OpenAI-compatible transcription API (only when you set `WIRE_TRANSCRIBE=1` or give a transcription API key; the audio goes to it), and webhooks you add with `wire watch add`.
 - **The tokenizer download**: on first use, `tiktoken` downloads its encoding file from OpenAI's public file host. Nothing about you is sent with it.
 
 Each of those services handles requests under its own privacy policy.
