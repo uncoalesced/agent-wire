@@ -3,7 +3,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner-light.png">
-    <img alt="agent-wire: agents wired to the live internet. One MCP server, 31 platforms, local." src="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png" width="100%">
+    <img alt="agent-wire: agents wired to the live internet. One local MCP server for the web and 31 platform channels." src="https://raw.githubusercontent.com/uncoalesced/agent-wire/main/assets/agent-wire-banner.png" width="100%">
   </picture>
 </p>
 
@@ -33,7 +33,7 @@
 
 **Agent Wire by uncoalesced.** On PyPI it's `agent-wire-cli`; the Claude plugin is `agent-wire`.
 
-agent-wire is an MCP server that lets an AI agent read the live web and 31 platforms from your own machine. Pages come back as small, clean text instead of raw HTML, your logins stay out of the model's context, and the common cases need no API keys. It's free, MIT licensed, and nothing is hosted.
+agent-wire is an MCP server that lets an AI agent read the live web and 31 platform channels from your own machine (most need no login; the table under "Where it works" lists the few that do). Pages come back as small, clean text instead of raw HTML, your logins stay out of the model's context, and the common cases need no API keys. It's free, MIT licensed, and nothing is hosted.
 
 > [!NOTE]
 > It's young. If a site stops parsing, please open an issue with the URL.
@@ -657,7 +657,7 @@ A lot of recent malware has arrived through package registries: a hijacked npm p
 To check a release yourself:
 
 ```bash
-uvx --from pypi-attestations pypi-attestations verify pypi --repository https://github.com/uncoalesced/agent-wire pypi:agent_wire_cli-0.2.3-py3-none-any.whl
+uvx --from pypi-attestations pypi-attestations verify pypi --repository https://github.com/uncoalesced/agent-wire pypi:agent_wire_cli-0.2.5-py3-none-any.whl
 ```
 
 ## Privacy Policy
@@ -668,7 +668,7 @@ agent-wire runs on your machine. There's no agent-wire server, no account, no an
 
 **What it stores.** Pages and results you ask for are processed in memory and kept in a session buffer while the server runs. Route memory is cached in `WIRE_HOME` and expires after 24 hours. If you call `wire_research` with `store=True`, the run is saved to `research.db` in `WIRE_HOME`, and it stays there until you delete it. Logins you add with `wire auth login <site>` go in an encrypted local vault (AES-GCM, with the key protected by Windows DPAPI, or a 0600 key file on macOS and Linux). Nothing is uploaded to uncoalesced. `wire auth logout <site>` removes a saved login, and deleting `WIRE_HOME` removes everything local.
 
-**Who sees your requests.** Only the services needed to answer them: the platforms you ask about, plus public fallbacks (Reddit's PullPush and Arctic Shift archives, OpenAlex, Semantic Scholar, Google News), and Exa or a SearXNG instance if you set one up. If you turn on transcription with an external API (`WIRE_TRANSCRIBE=1`), the audio goes to that API. A saved cookie goes only to the site it belongs to, only on read requests, and never follows a redirect to another site.
+**Who sees your requests.** Only the services needed to answer them: the platforms you ask about, plus public fallbacks (Reddit's PullPush and Arctic Shift archives, OpenAlex, Semantic Scholar, Google News), and Exa or a SearXNG instance if you set one up. If you turn on transcription with an external API (`WIRE_TRANSCRIBE=1`, or by setting a transcription API key), the audio goes to that API. A saved cookie goes only to the site it belongs to, only on read requests, and never follows a redirect to another site.
 
 **What your model sees.** Page text, after the scrub strips tokens, cookies, private IP addresses and, on logged-in pages, emails. Your cookies and identity never reach it.
 
@@ -696,7 +696,7 @@ Everything works without configuration. These are optional:
 | `GITHUB_TOKEN` | Higher GitHub rate limits and `wire_me github`. Outside the Claude plugin, `gh auth token` is used automatically if it's set up; `WIRE_NO_GH_CLI=1` turns that off. |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | Reddit's official app login for networks where anonymous access is blocked. |
 | `WIRE_SEARXNG_URL`, `EXA_API_KEY` | Extra web search engines. |
-| `WIRE_TRANSCRIBE=1` | Transcribe podcast audio, either locally with `agent-wire-cli[local-whisper]` or through an OpenAI-compatible API (`WIRE_TRANSCRIBE_API_KEY`, `WIRE_TRANSCRIBE_URL`, `WIRE_TRANSCRIBE_MODEL`). The API route uploads the audio, so it's opt-in. |
+| `WIRE_TRANSCRIBE=1` | Transcribe podcast audio, either locally with `agent-wire-cli[local-whisper]` or through an OpenAI-compatible API (`WIRE_TRANSCRIBE_API_KEY`, `WIRE_TRANSCRIBE_URL`, `WIRE_TRANSCRIBE_MODEL`). The API route uploads the audio, so it's opt-in: setting `WIRE_TRANSCRIBE_API_KEY` counts as opting in, and `WIRE_TRANSCRIBE=0` turns it off. |
 | `WIRE_ALLOW_PRIVATE=1` | Let reads reach private and internal addresses (localhost, LAN, link-local, `fd00::/8`). Off by default, so a prompt-injected page or script can't point agent-wire at your router or a cloud metadata endpoint. Set it only to read your own intranet. Your `WIRE_SEARXNG_URL`, transcription URL and watch webhooks are always allowed. |
 
 ## Development
@@ -709,7 +709,15 @@ uv sync --extra dev
 uv run pytest
 ```
 
-The tests run against small fixture payloads shaped like each site's real responses (a few download a tokenizer file on first run). They cover the firewalls, the fetch waterfall, every channel's parser, the research pipeline, the MCP server and the installer. CI runs them on Linux, macOS and Windows with Python 3.11 and 3.14, and builds the wheel.
+The tests run against small fixture payloads shaped like each site's real responses (a few download a tokenizer file on first run; without it, token counts fall back to an approximation). They cover the firewalls, the fetch waterfall, every channel's parser, the research pipeline, the MCP server and the installer. CI runs them on Linux, macOS and Windows with Python 3.11 and 3.14, and builds the wheel.
+
+To check a whole install at once, run the self-test. It drives every part through its real entry point: all 31 channels on canned responses, the firewalls and SSRF guard, the shield and its alert ledger, compression, the caches, the cookie vault, Code Mode, research, citations, the installers, and the MCP server both in-process and as a stdio subprocess. A guard fails the run if anything reaches the network.
+
+```bash
+wire selftest
+```
+
+`wire selftest --live` adds one real request per channel (Reddit with no API key, to show which fallback answered) and reads the 16 benchmark pages to count shield false positives. `--only <group or channel>` narrows the run, `--json` prints machine-readable results, and the exit code is 1 when any check fails. CI and the release workflow run the offline self-test.
 
 Releases are published to PyPI by `.github/workflows/release.yml` when a `v*` tag matching the version in `pyproject.toml` is pushed. It uses PyPI trusted publishing, so no token is stored in the repo.
 
