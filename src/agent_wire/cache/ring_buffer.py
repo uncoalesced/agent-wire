@@ -19,6 +19,7 @@ class Entry:
     sha256: str
     comment_ids: frozenset[str]
     payload: bytes
+    body_sha: str = ""
 
 
 @dataclass(slots=True)
@@ -53,7 +54,9 @@ class RingBuffer:
         entry = self.get(key)
         return self._zd.decompress(entry.payload).decode() if entry else None
 
-    def put(self, key: str, text: str, comment_ids: Iterable[str] = ()) -> Entry | None:
+    def put(
+        self, key: str, text: str, comment_ids: Iterable[str] = (), body: str = ""
+    ) -> Entry | None:
         data = text.encode()
         payload = self._zc.compress(data)
         self._remove(key)
@@ -61,7 +64,11 @@ class RingBuffer:
             return None  # bigger than the whole buffer: don't cache it
         self.evict_if_needed(len(payload))
         entry = Entry(
-            time.time(), hashlib.sha256(data).hexdigest(), frozenset(comment_ids), payload
+            time.time(),
+            hashlib.sha256(data).hexdigest(),
+            frozenset(comment_ids),
+            payload,
+            hashlib.sha256(body.encode()).hexdigest(),
         )
         self._entries[key] = entry
         self.total_bytes += len(payload)
@@ -74,19 +81,25 @@ class RingBuffer:
             _, old = self._entries.popitem(last=False)
             self.total_bytes -= len(old.payload)
 
-    def observe(self, key: str, text: str, comment_ids: Iterable[str] = ()) -> Delta:
-        """Compare against the last read of `key`, then store `text` unless unchanged."""
+    def observe(
+        self, key: str, text: str, comment_ids: Iterable[str] = (), body: str = ""
+    ) -> Delta:
+        """Compare against the last read of `key`, then store `text` unless unchanged.
+
+        "delta" (only new comments) needs an unchanged body; a body edit is "changed".
+        """
         ids = frozenset(comment_ids)
         prev = self.get(key)
         if prev is None:
-            self.put(key, text, ids)
+            self.put(key, text, ids, body)
             return Delta("new")
         age = time.time() - prev.timestamp
         if prev.sha256 == hashlib.sha256(text.encode()).hexdigest():
             return Delta("unchanged", age)
-        self.put(key, text, ids)
+        self.put(key, text, ids, body)
         new_ids = ids - prev.comment_ids
-        return Delta("delta", age, new_ids) if new_ids else Delta("changed", age)
+        same_body = prev.body_sha == hashlib.sha256(body.encode()).hexdigest()
+        return Delta("delta", age, new_ids) if new_ids and same_body else Delta("changed", age)
 
     def _remove(self, key: str) -> None:
         entry = self._entries.pop(key, None)
