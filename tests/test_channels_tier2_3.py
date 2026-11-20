@@ -514,6 +514,19 @@ def test_zhihu_question_and_article():
     assert q["title"] == "Q?" and [c.score for c in q["comments"]] == [50, 5]
     assert [c.id for c in zhihu.parse_initial(state, "question", "1", "11")["comments"]] == ["11"]
     assert zhihu.parse_initial(state, "article", "9")["body"] == "body"
+    assert zhihu.parse_initial(state, "question", "1", with_answers=False)["comments"] == []
+    only = zhihu.parse_initial(state, "question", "1", "11", with_answers=False)
+    assert [c.id for c in only["comments"]] == ["11"]  # the linked answer is the page itself
+
+
+def test_zhihu_read_honours_include_comments(run):
+    state = {"initialState": {"entities": {
+        "questions": {"1": {"title": "Q?", "detail": "<p>d</p>"}},
+        "answers": {"10": {"id": 10, "content": "<p>A1</p>"}}}}}  # fmt: skip
+    page = f'<script id="js-initialData" type="text/json">{orjson.dumps(state).decode()}</script>'
+    ctx = ctx_with({"zhihu.com": page})
+    doc = run(ctx.channel("zhihu").read("https://www.zhihu.com/question/1", include_comments=False))
+    assert doc.title == "Q?" and doc.comments == []
 
 
 def test_v2ex_topic(run):

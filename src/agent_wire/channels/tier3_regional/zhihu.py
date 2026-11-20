@@ -7,7 +7,9 @@ from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown,
 from agent_wire.models import WireComment
 
 
-def parse_initial(state: dict, kind: str, ident: str, answer_id: str | None = None) -> dict:
+def parse_initial(
+    state: dict, kind: str, ident: str, answer_id: str | None = None, with_answers: bool = True
+) -> dict:
     entities = (state.get("initialState") or {}).get("entities") or {}
     if kind == "article":
         a = (entities.get("articles") or {}).get(ident)
@@ -22,6 +24,8 @@ def parse_initial(state: dict, kind: str, ident: str, answer_id: str | None = No
         answers = [a for a in answers if str(a.get("id")) == answer_id] or answers
     if not q and not answers:
         raise WireUnsupported("zhihu question not in page state (login wall?)")
+    # a /answer/<id> URL is the answer itself; only a question page's answers are "comments"
+    answers = answers if with_answers or answer_id else []
     comments = [
         WireComment(id=str(a.get("id")), body=html_to_markdown(a.get("content") or a.get("excerpt") or ""),
                     author_handle=(a.get("author") or {}).get("name"), score=a.get("voteupCount") or 0,
@@ -46,7 +50,7 @@ class ZhihuChannel(Channel):
             return await self.ctx.channel("web").read(url, query=query, section=section)
         f = await self.fetch(url, archive=False)
         state = script_json(f.text, "script#js-initialData") or {}
-        return self.doc(f, url, **parse_initial(state, kind, ident, answer))
+        return self.doc(f, url, **parse_initial(state, kind, ident, answer, include_comments))
 
     async def search(self, query, *, limit=5, sort="relevance"):
         raise WireUnsupported(
