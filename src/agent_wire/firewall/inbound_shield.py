@@ -141,12 +141,10 @@ _STYLE_TAG = re.compile(r"<style", re.IGNORECASE)
 
 _TAG_CHARS = re.compile("[\U000e0000-\U000e007f]+")
 _ASTRAL_INVISIBLE = re.compile("[\U000e0000-\U000e007f\U000e0100-\U000e01ef]")  # tags, VS17-256
-_ZERO_WIDTH = re.compile(
-    "[\u00ad\u180e\u200b-\u200d\u2060\ufeff\ufe00-\ufe0f\u202a-\u202e\u2066-\u2069]"
-)
 _BMP_INVISIBLE = tuple(chr(cp) for cp in (0xAD, 0x180E, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF,
                                           *range(0xFE00, 0xFE10), *range(0x202A, 0x202F),
                                           *range(0x2066, 0x206A)))  # fmt: skip
+_ZERO_WIDTH = re.compile("[" + "".join(f"\\u{ord(c):04x}" for c in _BMP_INVISIBLE) + "]")
 _INVISIBLE = {cp: None for cp in range(0xE0000, 0xE0080)}  # Unicode tag characters
 _INVISIBLE.update(dict.fromkeys((0xAD, 0x180E, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF)))
 _INVISIBLE.update({cp: None for cp in range(0xFE00, 0xFE10)})  # variation selectors

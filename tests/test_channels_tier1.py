@@ -1,6 +1,7 @@
 import asyncio
 import threading
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 import orjson
 import pytest
@@ -318,7 +319,7 @@ def test_github_site_pages_skip_api(make_ctx, run, monkeypatch, url):
     ctx = make_ctx({"github.com": "<html><body><p>site page</p></body></html>"})
     doc = run(ctx.channel("github").read(url))
     assert doc.channel == "web"
-    assert not any("api.github.com" in c[0] for c in ctx.waterfall.calls)
+    assert not any(urlsplit(c[0]).hostname == "api.github.com" for c in ctx.waterfall.calls)
 
 
 def test_github_unknown_user_falls_back_to_web(make_ctx, run, monkeypatch):
