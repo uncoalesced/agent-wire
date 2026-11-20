@@ -87,25 +87,39 @@ class MarketsChannel(Channel):
     def __init__(self, ctx):
         super().__init__(ctx)
         self._crumb: str | None = None
+        self._crumb_lock = asyncio.Lock()  # ten tickers share one handshake
 
     async def _chrome(self, url: str, **kw) -> Fetched:
         """Anonymous shared chrome session: Yahoo/NSE need the cookies they set on a first visit."""
         return await self.ctx.pool.get(url, impersonate="chrome", **kw)
 
+    async def _get_crumb(self, stale: str | None = None) -> str | None:
+        async with self._crumb_lock:
+            if stale and self._crumb == stale:
+                self._crumb = None
+            if not self._crumb:
+                await self._chrome("https://fc.yahoo.com/")
+                self._crumb = (await self._chrome(f"{YF}/v1/test/getcrumb")).text.strip() or None
+            return self._crumb
+
     async def _yahoo(self, sym: str) -> tuple[dict, Fetched]:
-        f = await self._chrome(f"{YF}/v8/finance/chart/{quote(sym)}?range=5d&interval=1d")
+        f = await self._chrome(f"{YF}/v8/finance/chart/{quote(sym)}?range=1d&interval=1d")
         if not f.ok:
             raise WireFetchError(f"yahoo {sym}: HTTP {f.status}")
         chart = parse_json(f.content)
         summary = None
         try:
-            if not self._crumb:
-                await self._chrome("https://fc.yahoo.com/")
-                self._crumb = (await self._chrome(f"{YF}/v1/test/getcrumb")).text.strip() or None
-            if self._crumb:
+            crumb = await self._get_crumb()
+            for retry in (True, False):
+                if not crumb:
+                    break
                 s = await self._chrome(f"{YF}/v10/finance/quoteSummary/{quote(sym)}?modules=summaryDetail"
-                                       f"&crumb={quote(self._crumb)}")  # fmt: skip
+                                       f"&crumb={quote(crumb)}")  # fmt: skip
+                if s.status == 401 and retry:  # crumb expired: one fresh handshake, one retry
+                    crumb = await self._get_crumb(stale=crumb)
+                    continue
                 summary = parse_json(s.content)["quoteSummary"]["result"][0] if s.ok else None
+                break
         except ERRORS:
             summary = None  # P/E and market cap are a bonus over the chart quote
         return yahoo_row(chart, summary), f
@@ -168,9 +182,14 @@ class MarketsChannel(Channel):
         if host == "nseindia.com":
             token = "nse:" + parse_qs(p.query).get("symbol", [""])[0]
         elif host == "coingecko.com":
-            token = "crypto:" + segs[-1]
+            # /en/coins/<id>[/historical_data...]: the id follows "coins"
+            i = segs.index("coins") + 1 if "coins" in segs else len(segs) - 1
+            token = "crypto:" + (segs[i] if 0 <= i < len(segs) else "")
         else:  # finance.yahoo.com/quote/SYM
-            token = segs[segs.index("quote") + 1] if "quote" in segs else segs[-1]
+            i = segs.index("quote") + 1 if "quote" in segs else len(segs) - 1
+            token = segs[i] if 0 <= i < len(segs) else ""
+        if token.endswith(":") or not token:
+            raise WireUnsupported(f"markets: no symbol in {url}; try a /quote/<SYMBOL> URL")
         row, f = await self.quote(token)
         news = await self._news(row["symbol"]) if host == "finance.yahoo.com" else ""
         body = table([row]) + (f"\n\n## News\n{news}" if news else "")

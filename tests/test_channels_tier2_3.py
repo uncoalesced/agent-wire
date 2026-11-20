@@ -177,6 +177,54 @@ def test_watchlist_survives_one_bad_symbol(run):
     assert "| AAPL |" in doc.body and "Unavailable: NOPE: WireFetchError" in doc.body
 
 
+def test_yahoo_daily_change_uses_a_one_day_range(run):
+    five_day = {"chart": {"result": [{"meta": {**CHART["chart"]["result"][0]["meta"],
+                                               "chartPreviousClose": 50.0}}]}}  # fmt: skip
+    ctx = ctx_with({}, {"range=5d": five_day, "range=1d": CHART, "getcrumb": fetched("")})
+    row, _ = run(ctx.channel("markets").quote("AAPL"))
+    assert row["change_pct"] == pytest.approx(10.0)  # not the 5-day move (+120%)
+
+
+class _CrumbPool(FakePool):
+    """Yahoo whose first crumb is expired (401); counts handshakes."""
+
+    crumbs = 0
+
+    async def get(self, url, **kw):
+        if "getcrumb" in url:
+            self.crumbs += 1
+            return fetched(f"crumb{self.crumbs}", ctype="text/plain")
+        if "/v8/finance/chart/" in url:
+            return fetched(CHART)
+        if "quoteSummary" in url:
+            if "crumb=crumb1" in url:
+                return fetched(b"", status=401)
+            return fetched(
+                {"quoteSummary": {"result": [{"summaryDetail": {"trailingPE": {"raw": 9}}}]}}
+            )
+        return fetched("")
+
+
+def test_yahoo_crumb_is_shared_and_refreshed_once_on_401(run):
+    ctx = Context(pool=_CrumbPool(), waterfall=FakeWaterfall({}))
+    doc = run(ctx.channel("markets").feed(",".join(f"S{i}" for i in range(10))))
+    assert ctx.pool.crumbs == 2  # one handshake, one refresh, not one per ticker
+    assert doc.body.count("| 9.00 |") == 10
+
+
+@pytest.mark.parametrize("url", ["https://finance.yahoo.com/", "https://finance.yahoo.com/quote"])
+def test_markets_url_without_symbol_is_unsupported_not_indexerror(run, url):
+    with pytest.raises(WireUnsupported):
+        run(ctx_with().channel("markets").read(url))
+
+
+def test_coingecko_historical_data_url_uses_the_coin_id(run):
+    ctx = ctx_with({"/search?query=bitcoin": {"coins": [{"id": "bitcoin"}]},
+                    "/coins/markets": [{"symbol": "btc", "name": "Bitcoin", "current_price": 1}]})  # fmt: skip
+    run(ctx.channel("markets").read("https://www.coingecko.com/en/coins/bitcoin/historical_data"))
+    assert "/search?query=bitcoin" in ctx.waterfall.calls[0][0]
+
+
 # ---- linkedin / meta ----------------------------------------------------------------------------
 
 
