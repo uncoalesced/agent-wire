@@ -65,4 +65,3 @@ class Ledger:
                 "INSERT OR REPLACE INTO domain_routes VALUES (?, ?, ?, ?, ?)",
                 (domain, stage, cf_clearance, user_agent, int(time.time())),
             )
-
