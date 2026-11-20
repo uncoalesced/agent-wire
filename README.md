@@ -614,6 +614,14 @@ The result header shows the saving on every call:
 wire run -e "return (await wire.search('sqlite wal', {platforms: ['hn', 'stackoverflow']})).map(h => h.title)"
 ```
 
+### Claude Code's own Code Mode
+
+Claude Code has a Code Mode of its own, and it is a different thing. There Claude writes JavaScript that calls its tools (Bash, Edit, MCP tools) and reads only what the script returns. It is experimental and off by default. You turn it on with `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` (see the [Claude Code docs](https://code.claude.com/docs/en/code-mode)), and it only runs in the terminal `claude` session, not in the Desktop app, the VS Code panel, `-p` or the Agent SDK.
+
+`wire_run` doesn't depend on it. The script runs inside agent-wire, so it works in every client. A reasonable rule: use `wire serve --code-mode` in any client that has no Code Mode of its own, and in terminal Claude Code either one works.
+
+We haven't tested the two together. Claude's docs also don't say whether MCP tool definitions still load into context when its Code Mode is on, so we can't promise the smaller tool list there. If you try it, tell us what you see.
+
 ## Privacy and prompt injection
 
 agent-wire never reads your browsers on its own. The only cookies it sends are ones you saved for a specific site with `wire auth login <site>`, either through a login window or with `--from-browser`, which copies that one site's cookies from a browser you're already signed in to. `--from-browser` reads Firefox out of the box; Chrome, Edge and Brave need the opt-in extra `agent-wire-cli[browser-cookies]`, so the default install carries no browser-credential reader. `wire auth list` shows what's saved and `wire auth logout <site>` forgets it. Saved sessions are used for `wire_me`, for login-only sites (LinkedIn, Instagram, Xiaohongshu, X search), and when a public request hits a login wall. Link checks in `wire_cite` and `wire_research` never send saved sessions, even when a page asks for a login.
