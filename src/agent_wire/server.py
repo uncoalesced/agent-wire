@@ -198,7 +198,8 @@ class Wire:
         """Return (dense markdown, tokens, raw tokens), or a one-line UNCHANGED notice."""
         comments = shield_comments(doc.comments)
         doc = doc.model_copy(update={"comments": comments})
-        doc = _fit(doc, query, budget)  # compare what is emitted: another query/budget is not "unchanged"
+        # Compare what is emitted: another query or budget must not read as "unchanged".
+        doc = _fit(doc, query, budget)
         header = ""
         if delta_check:
             full = render_document(doc)
@@ -212,7 +213,10 @@ class Wire:
                 if delta.status == "delta":
                     header = f"DELTA UPDATE: +{len(delta.new_comment_ids)} new comments since {int(delta.age_s)}s ago"
                     doc = doc.model_copy(
-                        update={"body": "", "comments": _only(doc.comments, set(delta.new_comment_ids))}
+                        update={
+                            "body": "",
+                            "comments": _only(doc.comments, set(delta.new_comment_ids)),
+                        }
                     )
 
         text = self._scrub(doc, render_document(doc))
