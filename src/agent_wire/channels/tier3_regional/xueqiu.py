@@ -37,8 +37,8 @@ class XueqiuChannel(Channel):
 
     async def _get(self, url: str) -> Fetched:
         if not self._primed:  # anonymous visitor cookie, kept in the shared chrome session
-            await self.ctx.pool.get("https://xueqiu.com/", impersonate="chrome")
-            self._primed = True
+            home = await self.ctx.pool.get("https://xueqiu.com/", impersonate="chrome")
+            self._primed = home.ok  # a failed visit is retried on the next call
         f = await self.ctx.pool.get(
             url, impersonate="chrome", headers={"Referer": "https://xueqiu.com/"}
         )

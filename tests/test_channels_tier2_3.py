@@ -403,6 +403,44 @@ def test_bilibili_read(run):
     assert "w_rid=" in signed_call and "wts=" in signed_call
 
 
+class _FlakyHomePool(FakePool):
+    """Homepage priming fails once (503), then works; every other URL answers 200."""
+
+    def __init__(self, home):
+        super().__init__()
+        self.home, self.home_visits = home, 0
+
+    async def get(self, url, **kw):
+        if url == self.home:
+            self.home_visits += 1
+            return fetched(b"", status=503 if self.home_visits == 1 else 200)
+        return fetched(b"{}")
+
+
+@pytest.mark.parametrize(
+    "name, home, api",
+    [("bilibili", "https://www.bilibili.com/", "https://api.bilibili.com/x/a"),
+     ("xueqiu", "https://xueqiu.com/", "https://stock.xueqiu.com/v5/x")],
+)  # fmt: skip
+def test_priming_is_only_remembered_after_a_good_response(run, name, home, api):
+    ctx = Context(pool=_FlakyHomePool(home), waterfall=FakeWaterfall({}))
+    ch = ctx.channel(name)
+    run(ch._get(api))
+    run(ch._get(api))
+    run(ch._get(api))
+    assert ctx.pool.home_visits == 2  # retried after the 503, then remembered
+
+
+def test_bilibili_search_does_not_revisit_the_homepage(run):
+    ctx = ctx_with({}, {"/search/type": {"code": 0, "data": {"result": []}},
+                        "/x/web-interface/nav": {"data": {"wbi_img": {"img_url": "a/" + "b" * 32 + ".png", "sub_url": "a/" + "c" * 32 + ".png"}}},
+                        "www.bilibili.com/": ""})  # fmt: skip
+    run(ctx.channel("bilibili").search("x"))
+    assert [u for u in ctx.pool.calls if u == "https://www.bilibili.com/"] == [
+        "https://www.bilibili.com/"
+    ]  # primed once by _get, not once more by search
+
+
 def test_bilibili_needs_bvid(run):
     with pytest.raises(WireUnsupported):
         run(ctx_with().channel("bilibili").read("https://www.bilibili.com/anime/"))
