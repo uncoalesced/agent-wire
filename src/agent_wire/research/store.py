@@ -104,11 +104,14 @@ class Store:
 
     def new_items(self, run_id: int, previous_id: int | None) -> list[dict]:
         """Items in this run whose URL never appeared in the previous run of the same topic."""
-        if previous_id is None:
-            return self.items(run_id)
         rows = self.db.execute("SELECT url_key FROM items WHERE run_id = ?", (previous_id,))
-        seen = {r["url_key"] for r in rows}
-        return [i for i in self.items(run_id) if i["url_key"] not in seen]
+        seen = {r["url_key"] for r in rows}  # empty when there is no previous run
+        out = []
+        for i in self.items(run_id):  # best-scored copy first; a URL is listed once
+            if i["url_key"] not in seen:
+                seen.add(i["url_key"])
+                out.append(i)
+        return out
 
     def search(self, query: str, limit: int = 10, exclude: int | None = None) -> list[dict]:
         """Offline, deterministic BM25 over every saved brief."""
