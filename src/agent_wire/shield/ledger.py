@@ -48,22 +48,37 @@ class AlertLedger:
         self._db.close()
 
     def add(self, alert: Alert) -> int:
-        row = {f: getattr(alert, f) for f in FIELDS}
+        return self.add_many([alert])[0]
+
+    def add_many(self, alerts: list[Alert], counts: dict[str, int] | None = None) -> list[int]:
+        """All rows (and counters) in one transaction. The write lock is taken before the last
+        hash is read, so two processes can't both chain onto the same predecessor."""
+        ids = []
         with self._db:
+            self._db.execute("BEGIN IMMEDIATE")
             last = self._db.execute("SELECT hash FROM alerts ORDER BY id DESC LIMIT 1").fetchone()
             prev = last["hash"] if last else GENESIS
-            cur = self._db.execute(_INSERT, (*row.values(), prev, _digest(prev, row)))
-        return cur.lastrowid
+            for alert in alerts:
+                row = {f: getattr(alert, f) for f in FIELDS}
+                digest = _digest(prev, row)
+                ids.append(self._db.execute(_INSERT, (*row.values(), prev, digest)).lastrowid)
+                prev = digest
+            if counts:
+                self._bump(counts)
+        return ids
 
     def bump(self, counts: dict[str, int]) -> None:
         if not counts:
             return
         with self._db:
-            self._db.executemany(
-                "INSERT INTO counters (rule_id, n) VALUES (?, ?)"
-                " ON CONFLICT(rule_id) DO UPDATE SET n = n + excluded.n",
-                list(counts.items()),
-            )
+            self._bump(counts)
+
+    def _bump(self, counts: dict[str, int]) -> None:
+        self._db.executemany(
+            "INSERT INTO counters (rule_id, n) VALUES (?, ?)"
+            " ON CONFLICT(rule_id) DO UPDATE SET n = n + excluded.n",
+            list(counts.items()),
+        )
 
     def recent(self, limit: int = 20, min_tier: int = 1) -> list[dict]:
         rows = self._db.execute(
