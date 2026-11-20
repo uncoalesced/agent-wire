@@ -67,6 +67,9 @@ class PublishingChannel(Channel):
     async def feed(self, target, *, sort="hot", limit=10):
         t = target.strip().rstrip("/")
         if t.startswith("@") or on_host(t, "medium.com"):
+            host = "" if t.startswith("@") else urlsplit(t if "//" in t else f"//{t}").hostname
+            if host not in ("", "medium.com", "www.medium.com"):  # user.medium.com custom domain
+                return await self.ctx.channel("rss").feed(f"https://{host}/feed", limit=limit)
             handle = t.split("medium.com/")[-1]
             return await self.ctx.channel("rss").feed(
                 f"https://medium.com/feed/{handle}", limit=limit

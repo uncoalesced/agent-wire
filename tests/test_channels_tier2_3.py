@@ -308,6 +308,29 @@ def test_publishing_feeds_map_to_rss(run):
     assert urls == ["https://platformer.substack.com/feed", "https://medium.com/feed/@karpathy"]
 
 
+def test_medium_custom_domain_feed(run):
+    rss = fetched(b"<rss><channel><title>N</title></channel></rss>", ctype="application/rss+xml")
+    ctx = ctx_with({"/feed": rss})
+    run(ctx.channel("publishing").feed("https://user.medium.com"))
+    assert [u for u, _ in ctx.waterfall.calls] == ["https://user.medium.com/feed"]
+
+
+@pytest.mark.parametrize("path", ["explore/", "accounts/login/", "stories/someone/123/"])
+def test_instagram_reserved_paths_are_not_usernames(run, path):
+    page = '<html><head><meta property="og:title" content="ig page"></head></html>'
+    ctx = ctx_with({"instagram.com": page})
+    run(ctx.channel("meta_social").read(f"https://www.instagram.com/{path}"))
+    assert not any("web_profile_info" in u for u, _ in ctx.waterfall.calls)
+
+
+@pytest.mark.parametrize("path", ["blog/foo", "docs/hub", "papers/2401.00001", "collections/x"])
+def test_huggingface_site_pages_use_the_web_reader(run, path):
+    ctx = ctx_with({"huggingface.co": "<html><body><p>page</p></body></html>"})
+    doc = run(ctx.channel("hubs").read(f"https://huggingface.co/{path}"))
+    assert doc.channel == "web"
+    assert not any("/api/models/" in u for u, _ in ctx.waterfall.calls)
+
+
 def test_bluesky_post(run):
     thread = {"thread": {"post": {"uri": "at://did:plc:x/app.bsky.feed.post/3k", "cid": "c0",
                                   "author": {"handle": "jay.bsky.team"}, "likeCount": 10,
