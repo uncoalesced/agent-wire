@@ -87,15 +87,11 @@ def route_url(url: str) -> str:
             return channel
     if _MASTODON_STATUS.match(parts.path):
         return "fediverse"
-    if host.endswith(".substack.com") or _is_substack_post(parts.path):
+    if host.endswith(".substack.com"):
         return "publishing"
     if _FEED_PATH.search(parts.path):
         return "rss"
     return "web"
-
-
-def _is_substack_post(path: str) -> bool:
-    return False  # custom-domain Substacks are detected by the web channel from page markup
 
 
 def route_platform(platform: str) -> str:
