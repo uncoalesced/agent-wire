@@ -592,6 +592,11 @@ def test_stackexchange_site_mapping():
     assert stackoverflow.site_for("www.mathoverflow.net") == "mathoverflow.net"
 
 
+@pytest.mark.parametrize("host", ["es", "pt", "ru", "ja", "meta"])
+def test_stackoverflow_localised_sites(host):
+    assert stackoverflow.site_for(f"{host}.stackoverflow.com") == f"{host}.stackoverflow"
+
+
 # ---- wikipedia ----------------------------------------------------------------------------------
 
 

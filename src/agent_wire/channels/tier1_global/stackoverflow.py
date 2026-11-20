@@ -18,7 +18,9 @@ def site_for(host: str) -> str:
     host = host.removeprefix("www.")
     if host in _ROOT_SITES:
         return _ROOT_SITES[host]
-    return host.removesuffix(".stackexchange.com")
+    if host.endswith(".stackexchange.com"):
+        return host.removesuffix(".stackexchange.com")
+    return host.removesuffix(".com")  # es.stackoverflow.com -> es.stackoverflow
 
 
 def pick_answers(answers: list[dict]) -> list[dict]:
