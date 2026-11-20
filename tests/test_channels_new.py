@@ -47,6 +47,14 @@ def test_polymarket_odds_search_and_read(make_ctx, run):
     assert "Markets:" in doc.body and doc.metadata["volume"] == 4500000
 
 
+def test_polymarket_market_slug_inside_a_multi_market_event(make_ctx, run):
+    market = {"slug": "fed-25bps", "question": "25 bps cut?", "outcomes": '["Yes", "No"]',
+              "outcomePrices": '["0.62", "0.38"]', "volume": "300"}  # fmt: skip
+    ctx = make_ctx({"events?slug": [], "markets?slug": [market]})
+    doc = run(ctx.channel("polymarket").read("https://polymarket.com/market/fed-25bps"))
+    assert doc.title == "25 bps cut?" and "Yes 62%" in doc.body
+
+
 # ---- stocktwits ---------------------------------------------------------------------------------
 STREAM = {"symbol": {"title": "NVIDIA", "watchlist_count": 1000},
           "messages": [{"id": 1, "body": "$NVDA up", "created_at": NOW.isoformat(),
