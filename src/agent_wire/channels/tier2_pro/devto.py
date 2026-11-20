@@ -1,5 +1,6 @@
 """DEV Community (dev.to public API, no key): developer write-ups by tag, with reactions."""
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from urllib.parse import quote, urlsplit
@@ -102,7 +103,7 @@ class DevToChannel(Channel):
         comments = []
         if include_comments and a.get("id"):
             raw, _ = await self.fetch_json(f"{API}/comments?a_id={a['id']}")
-            comments = _comments(raw)
+            comments = await asyncio.to_thread(_comments, raw)
         return self.doc(
             f, url, title=a.get("title"), author_handle=(a.get("user") or {}).get("username"),
             timestamp=ts(a.get("published_at")), score=a.get("public_reactions_count"),

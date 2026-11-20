@@ -1,5 +1,6 @@
 """Wayback Machine and Archive.today: read snapshots, list a URL's capture history."""
 
+import asyncio
 import re
 from urllib.parse import quote, urlsplit
 
@@ -40,7 +41,7 @@ class ArchiveChannel(Channel):
             if not target:
                 raise WireUnsupported(f"no Wayback snapshot of {url}")
         f = await self.fetch(target, archive=False)
-        body, info = extract_article(f.text)
+        body, info = await asyncio.to_thread(extract_article, f.text)
         return self.doc(f, url, title=info["title"], author_handle=info["author"], body=body,
                         metadata={"snapshot": target})  # fmt: skip
 

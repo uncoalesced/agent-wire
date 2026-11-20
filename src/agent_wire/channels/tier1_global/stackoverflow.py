@@ -1,5 +1,6 @@
 """StackOverflow / StackExchange: question, accepted answer and top-voted answers via API 2.3."""
 
+import asyncio
 import html
 import re
 from urllib.parse import quote, urlsplit
@@ -35,6 +36,17 @@ def _owner(item: dict) -> str | None:
     return html.unescape((item.get("owner") or {}).get("display_name") or "") or None
 
 
+def _answers(items: list[dict]) -> list[WireComment]:
+    return [
+        WireComment(
+            id=str(a["answer_id"]), body=html_to_markdown(a.get("body") or ""),
+            author_handle=_owner(a), score=a.get("score") or 0,
+            is_accepted=bool(a.get("is_accepted")), timestamp=ts(a.get("creation_date")),
+        )
+        for a in pick_answers(items)
+    ]  # fmt: skip
+
+
 class StackOverflowChannel(Channel):
     name = "stackoverflow"
 
@@ -53,15 +65,8 @@ class StackOverflowChannel(Channel):
             a_data, _ = await self.fetch_json(
                 f"{API}/questions/{qid}/answers?site={site}&filter=withbody&sort=votes&pagesize=20"
             )
-            comments = [
-                WireComment(
-                    id=str(a["answer_id"]), body=html_to_markdown(a.get("body") or ""),
-                    author_handle=_owner(a), score=a.get("score") or 0,
-                    is_accepted=bool(a.get("is_accepted")), timestamp=ts(a.get("creation_date")),
-                )
-                for a in pick_answers(a_data.get("items", []))
-            ]  # fmt: skip
-        body = html_to_markdown(q.get("body") or "")
+            comments = await asyncio.to_thread(_answers, a_data.get("items", []))
+        body = await asyncio.to_thread(html_to_markdown, q.get("body") or "")
         return self.doc(
             f, url, title=html.unescape(q.get("title", "")), author_handle=_owner(q),
             timestamp=ts(q.get("creation_date")), score=q.get("score"), body=body,

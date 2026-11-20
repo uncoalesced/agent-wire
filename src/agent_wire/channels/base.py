@@ -116,6 +116,19 @@ def relative_ts(text: str | None, now: datetime | None = None) -> datetime | Non
     return (now or datetime.now(UTC)) - timedelta(seconds=int(m[1]) * _REL_S[m[2].lower()])
 
 
+MAX_COMMENTS = 400  # per thread, for platforms whose API returns every reply
+
+
+def tree_keep(nodes: list[dict], limit: int = MAX_COMMENTS, kids: str = "children") -> set[int]:
+    """id()s of the first `limit` comments of a raw reply tree, shallowest first."""
+    keep: set[int] = set()
+    level = list(nodes or [])
+    while level and len(keep) < limit:
+        keep.update(id(n) for n in level[: limit - len(keep)])
+        level = [k for n in level if id(n) in keep for k in n.get(kids) or []]
+    return keep
+
+
 def listing(items: list[dict]) -> str:
     """Compact DAM list for feeds/search: one line per item plus an optional indented snippet."""
     lines = []
