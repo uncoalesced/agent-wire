@@ -254,6 +254,42 @@ def test_github_repo_overview(make_ctx, run, monkeypatch):
     assert "pip install b" in doc.body and "run" not in doc.body.split("## README")[1]
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["https://github.com/pricing", "https://github.com/features/copilot",
+     "https://github.com/sponsors/x", "https://github.com/explore", "https://github.com/apps/x",
+     "https://github.com/pulls", "https://github.com/enterprise"],
+)  # fmt: skip
+def test_github_site_pages_skip_api(make_ctx, run, monkeypatch, url):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"github.com": "<html><body><p>site page</p></body></html>"})
+    doc = run(ctx.channel("github").read(url))
+    assert doc.channel == "web"
+    assert not any("api.github.com" in c[0] for c in ctx.waterfall.calls)
+
+
+def test_github_unknown_user_falls_back_to_web(make_ctx, run, monkeypatch):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"https://github.com/zzz": "<html><body><p>hello</p></body></html>"})
+    doc = run(ctx.channel("github").read("https://github.com/zzz"))  # api route missing -> error
+    assert doc.channel == "web"
+
+
+def test_github_short_raw_url_does_not_crash(make_ctx, run, monkeypatch):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"raw.githubusercontent.com/x": "<html><body>raw</body></html>"})
+    doc = run(ctx.channel("github").read("https://raw.githubusercontent.com/x"))
+    assert doc.channel == "web"
+
+
+def test_github_empty_repo_without_contents(make_ctx, run, monkeypatch):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"/repos/a/b/readme": fetched("# B", ctype="text/plain"),
+                    "/repos/a/b": {"full_name": "a/b", "description": "empty"}})  # fmt: skip
+    doc = run(ctx.channel("github").read("https://github.com/a/b"))  # no /contents route -> error
+    assert doc.title == "a/b" and "## Files" not in doc.body
+
+
 def test_github_blob_line_range(make_ctx, run, monkeypatch):
     monkeypatch.setattr(github, "github_token", lambda: None)
     src = "\n".join(f"x{i} = {i}" for i in range(1, 101))
