@@ -134,6 +134,11 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
         out += ["", "## Not covered"]
         out += [f"- {s}: {why}" for s, why in sorted(r.gaps.items())]
         out += [f"- {note}" for note in p.notes]
+    if undated := sum(1 for i in r.items if i.hit.timestamp is None):
+        out += [
+            "",
+            f"_{undated} items have no date (their source gives none) and may predate the window._",
+        ]
     if r.link_status:
         bad = sum(1 for c in r.link_status.values() if c.bad)
         out += ["", f"_Links checked: {len(r.link_status)} opened, {bad} dead or gone (marked ⚠)._"]
