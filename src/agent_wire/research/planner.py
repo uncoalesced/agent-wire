@@ -103,6 +103,11 @@ class Plan:
     def deep_reads(self) -> int:
         return DEPTHS[self.depth]["deep_reads"]
 
+    @property
+    def last_day(self):
+        """The last day the window covers: a bare --as-of date ends at the next midnight."""
+        return (self.until - timedelta(seconds=1)).date()
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["since"], d["until"] = self.since.isoformat(), self.until.isoformat()
@@ -110,7 +115,7 @@ class Plan:
 
     def describe(self) -> str:
         """--preflight: what would run, without running it."""
-        window = f"{self.since.date()} -> {self.until.date()} ({self.days} days)"
+        window = f"{self.since.date()} -> {self.last_day} ({self.days} days)"
         lines = [f"mode: {self.mode} · depth: {self.depth} · window: {window}"]
         if self.subjects:
             lines.append("subjects: " + " | ".join(self.subjects))

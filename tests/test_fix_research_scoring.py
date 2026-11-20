@@ -24,6 +24,13 @@ def test_undated_web_and_news_items_are_dropped_from_a_window():
     assert sorted(i.hit.url for i in out) == ["c", "d"]
 
 
+def test_bare_as_of_date_prints_its_own_last_day():
+    plan = make_plan("x", days=7, as_of="2026-11-20")
+    assert "window: 2026-11-14 -> 2026-11-20 (7 days)" in plan.describe()
+    r = ResearchResult(plan=plan)
+    assert "Window 2026-11-14 → 2026-11-20" in briefmod.to_markdown(r)
+
+
 def test_brief_footnotes_undated_items_that_were_kept():
     plan = make_plan("rust async", sources=["hn"], days=7)
     kept = score_items([item("hackernews", "c")], "rust async", plan.since, plan.until, 7)

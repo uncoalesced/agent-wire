@@ -65,9 +65,9 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
     out = [f"# {title_of(r)}", ""]
     srcs = ", ".join(f"{s} {c}" for s, c in sorted(r.counts.items(), key=lambda kv: -kv[1]))
     if p.mode == "person":
-        out.append(f"Window {p.since.date()} → {p.until.date()}")
+        out.append(f"Window {p.since.date()} → {p.last_day}")
     else:
-        out.append(f"Window {p.since.date()} → {p.until.date()} · {len(r.items)} items in "
+        out.append(f"Window {p.since.date()} → {p.last_day} · {len(r.items)} items in "
                    f"{len(r.clusters)} stories · {srcs or 'no sources answered'}")  # fmt: skip
 
     if r.topics:
