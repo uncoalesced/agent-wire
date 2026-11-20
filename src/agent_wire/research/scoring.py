@@ -12,6 +12,9 @@ WEIGHTS = {"score": 1.0, "likes": 1.0, "comments": 2.0, "reposts": 2.0, "reactio
            "stars": 0.1, "forks": 0.2, "views": 0.003, "volume24h": 0.001, "volume": 0.0001}  # fmt: skip
 RELEVANCE_FLOOR = 0.34  # below this an item is off-topic, however viral
 UNDATED_FRESHNESS = 0.35
+NEEDS_DATE = frozenset(
+    {"web", "news", "techmeme"}
+)  # their items exist to be recent; no date, no entry
 MIN_SOURCE_TOP = math.log1p(50)
 
 
@@ -72,7 +75,8 @@ def score_items(items: list[Item], topic: str, since: datetime, until: datetime,
 
     `floor=None` picks a relevance floor from each item's query; pass a number to override.
     """
-    kept = [i for i in items if in_window(i.hit, since, until)]
+    kept = [i for i in items if in_window(i.hit, since, until)
+            and (i.hit.timestamp or not {i.origin, i.source} & NEEDS_DATE)]  # fmt: skip
     for i in kept:
         i.relevance = relevance(i.hit, i.query or topic)
     kept = [i for i in kept
