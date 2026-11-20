@@ -1,6 +1,7 @@
 """Code Mode: busy loops stay off the event loop; console output is capped."""
 
 import asyncio
+import itertools
 import time
 
 from agent_wire.codemode import sandbox
@@ -27,7 +28,7 @@ def test_busy_loop_does_not_freeze_event_loop():
 
     out = asyncio.run(go())
     assert "CPU time limit" in out.error
-    gaps = [b - a for a, b in zip(ticks, ticks[1:])]
+    gaps = [b - a for a, b in itertools.pairwise(ticks)]
     assert len(ticks) > 10 and max(gaps) < 0.5  # a frozen loop would show one ~1 s gap
 
 
