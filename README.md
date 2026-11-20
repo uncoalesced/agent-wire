@@ -580,7 +580,7 @@ wire library feed
 Asked for sources, agents tend to fail in two ways: they make one up, or they give a real-looking link that's dead or doesn't say what they claim. agent-wire handles both.
 
 - The skill and server instructions tell the agent to write `[[UNSOURCED]]` after any claim it has no source for, instead of inventing one. `wire_cite` lists every marked claim, so the agent finds a source or tells you the claim is unverified.
-- `wire_cite` opens every cited link, with the archive fallback switched off so a dead page can't hide behind its Wayback copy, and returns one verdict per link: `OK`, `DEAD`, `ARCHIVED` with the snapshot to cite instead, `SOFT_404` (a 200 page that says "not found" or bounces to the home page), `BLOCKED` (exists, but refuses bots), or `QUOTE_MISSING`. Dead links come with a ready replacement search, and the agent is told to ask you or a sub-agent rather than drop the citation quietly.
+- `wire_cite` opens every cited link, with the archive fallback switched off so a dead page can't hide behind its Wayback copy, and returns one verdict per link: `OK`, `DEAD`, `ARCHIVED` with the snapshot to cite instead, `SOFT_404` (a 200 page that says "not found" or bounces to the home page), `BLOCKED` (exists, but refuses bots), `UNREACHABLE` (timed out or a server error, so retry before calling it dead), or `QUOTE_MISSING`. Dead links come with a ready replacement search, and the agent is told to ask you or a sub-agent rather than drop the citation quietly.
 - Links that agent-wire never returned during the session are flagged, because those usually came from the model's memory.
 - `wire_research` opens the web and news links it shows and marks failures with ⚠. `--no-verify-links` skips it.
 
