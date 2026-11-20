@@ -215,7 +215,7 @@ class Researcher:
             if plan.github_user:
                 await self._person(plan, result)
         if library is not None and plan.topic:
-            result.library = library.related(plan.topic, limit=3)
+            result.library = await library.related_async(plan.topic, limit=3)
         if verify_links:
             await self._verify_links(plan, result)
         result.elapsed_ms = int((time.perf_counter() - t0) * 1000)
