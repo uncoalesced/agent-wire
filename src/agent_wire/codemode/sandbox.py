@@ -10,6 +10,7 @@ import json
 import re
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import quickjs
@@ -75,8 +76,9 @@ _PRELUDE = r"""
   };
   const show = x => { if (typeof x === "string") return x;
     try { return stringify(x); } catch (e) { return String(x); } };
-  const log = (...a) => { if (logSize > LOG_CAP) return;
-    const s = a.map(show).join(" "); logSize += s.length + 1; logs[logs.length] = s; };
+  const log = (...a) => { const room = LOG_CAP - logSize; if (room <= 0) return;
+    const s = a.map(x => show(x).slice(0, room)).join(" ").slice(0, room);
+    logSize += s.length + 1; logs[logs.length] = s; };
   const line = e => { const m = /<input>:(\d+)/.exec((e && e.stack) || ""); return m ? +m[1] : null; };
   globalThis.console = freeze({log, info: log, warn: log, error: log, debug: log});
   globalThis.wire = freeze(Object.fromEntries(NAMES.map(n => [n, (...a) => call(n, a)])));
@@ -137,17 +139,44 @@ async def run(
     code: str, host: HostCall, names: tuple[str, ...], limits: Limits = DEFAULT_LIMITS
 ) -> Outcome:
     out = Outcome()
-    ctx = quickjs.Context()
-    ctx.set_memory_limit(limits.memory_bytes)
-    ctx.set_time_limit(limits.cpu_s)
-    ctx.eval(_prelude(names, limits.log_chars))
-    hook = {name: ctx.eval(f"__hooks.{name}") for name in _HOOKS}
-    ctx.eval("delete globalThis.__hooks")
+    # QuickJS is synchronous and not thread-safe: every touch of the context happens on this one
+    # worker thread (so a busy loop blocks only the worker, not the server's event loop).
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(1, thread_name_prefix="wire-js")
+    js: dict = {}
+
+    def off(fn, *args):
+        return loop.run_in_executor(executor, fn, *args)
+
+    def setup() -> None:
+        ctx = quickjs.Context()
+        ctx.set_memory_limit(limits.memory_bytes)
+        ctx.set_time_limit(limits.cpu_s)
+        ctx.eval(_prelude(names, limits.log_chars))
+        hook = {name: ctx.eval(f"__hooks.{name}") for name in _HOOKS}
+        ctx.eval("delete globalThis.__hooks")
+        js.update(ctx=ctx, hook=hook)
+        # User code starts on line 1, so QuickJS line numbers match the script.
+        hook["finish"](ctx.eval("(async () => {" + _clean(code) + "\n})"))
+
+    def pump() -> tuple[str, str]:
+        # QuickJS's limit resets per job, so `for (;;) await 0` needs this deadline too;
+        # without it the loop never yields and wall_s can't fire.
+        deadline = time.monotonic() + limits.cpu_s
+        while js["ctx"].execute_pending_job():
+            if time.monotonic() > deadline:
+                raise _Abort(CPU_LIMIT)
+        return js["hook"]["drain"](), js["hook"]["state"]()
+
+    def settle(results: list[tuple[int, bool, str]]) -> None:
+        for call_id, ok, payload in results:
+            js["hook"]["settle"](call_id, ok, payload)
+
     tasks: dict[asyncio.Task, int] = {}
     backlog: list[list] = []
 
-    def start_queued() -> None:
-        backlog.extend(json.loads(hook["drain"]()))
+    def start_queued(drained: str) -> None:
+        backlog.extend(json.loads(drained))
         while backlog and len(tasks) < limits.max_inflight:
             call_id, name, args = backlog.pop(0)
             out.calls += 1
@@ -157,29 +186,25 @@ async def run(
 
     try:
         async with asyncio.timeout(limits.wall_s):
-            # User code starts on line 1, so QuickJS line numbers match the script.
-            hook["finish"](ctx.eval("(async () => {" + _clean(code) + "\n})"))
+            await off(setup)
             while True:
-                # QuickJS's limit resets per job, so `for (;;) await 0` needs this deadline too;
-                # without it the loop never yields and wall_s can't fire.
-                deadline = time.monotonic() + limits.cpu_s
-                while ctx.execute_pending_job():
-                    if time.monotonic() > deadline:
-                        raise _Abort(CPU_LIMIT)
-                start_queued()
-                if state := hook["state"]():
+                drained, state = await off(pump)
+                start_queued(drained)
+                if state:
                     break
                 if not tasks:
                     raise _Abort("Error: script awaited a promise that never settles")
                 done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                results = []
                 for task in done:
                     call_id = tasks.pop(task)
                     try:
                         data, raw = task.result()
                         out.raw_tokens += raw
-                        hook["settle"](call_id, True, json.dumps(data, default=str))
+                        results.append((call_id, True, json.dumps(data, default=str)))
                     except Exception as e:  # noqa: BLE001 - any host failure rejects only that promise
-                        hook["settle"](call_id, False, _clean(f"{type(e).__name__}: {e}"))
+                        results.append((call_id, False, _clean(f"{type(e).__name__}: {e}")))
+                await off(settle, results)
         result = json.loads(state)
         out.text = _clean(result["text"]) if result.get("text") is not None else None
         if "error" in result:
@@ -202,7 +227,11 @@ async def run(
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)  # let channel cleanup run now
     try:
-        out.logs = "\n".join(_clean(s) for s in json.loads(hook["logs"]()))
+        logs = await asyncio.wait_for(off(lambda: js["hook"]["logs"]()), limits.cpu_s + 1)
+        out.logs = "\n".join(_clean(s) for s in json.loads(logs))[: limits.log_chars]
     except Exception:  # noqa: BLE001, S110 - logs are best effort
         pass
+    finally:
+        executor.submit(js.clear)  # frees the context on the thread that owns it
+        executor.shutdown(wait=False)
     return out
