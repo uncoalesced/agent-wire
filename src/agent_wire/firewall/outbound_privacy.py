@@ -2,7 +2,7 @@
 
 import ipaddress
 import re
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import orjson
 
@@ -32,6 +32,24 @@ BLOCKED_PRIVATE_PATHS = (
 _BLOCKED_SEGMENTS = frozenset(p.lstrip("/") for p in BLOCKED_PRIVATE_PATHS)
 
 
+def _path_segments(path: str) -> set[str]:
+    """Every segment the server may see: percent-decoded until stable, `;params` and dot-segments
+    resolved (as curl does), plus the raw ones, so no spelling of /settings slips past."""
+    for _ in range(8):
+        decoded = unquote(path)
+        if decoded == path:
+            break
+        path = decoded
+    raw = [seg.split(";")[0] for seg in path.lower().replace("\\", "/").split("/")]
+    resolved: list[str] = []
+    for seg in raw:
+        if seg == "..":
+            resolved and resolved.pop()
+        elif seg != ".":
+            resolved.append(seg)
+    return {*raw, *resolved}
+
+
 def check_request(method: str, url: str, *, authenticated: bool) -> None:
     """Raise before any packet leaves if a cookie-bearing request could touch private data.
 
@@ -44,8 +62,7 @@ def check_request(method: str, url: str, *, authenticated: bool) -> None:
         ev.record("outbound", "authenticated-write", ev.T2,
                   f"cookie-bearing {method.upper()} request", ev.REFUSED, url=url)  # fmt: skip
         raise WirePrivacyBlockError(f"authenticated {method} blocked: read-only only")
-    segments = urlsplit(url).path.lower().split("/")
-    if blocked := _BLOCKED_SEGMENTS.intersection(segments):
+    if blocked := _BLOCKED_SEGMENTS.intersection(_path_segments(urlsplit(url).path)):
         ev.record("outbound", "private-path", ev.T2,
                   f"cookie-bearing request to /{min(blocked)}", ev.REFUSED, url=url)  # fmt: skip
         raise WirePrivacyBlockError(f"private account path blocked: /{min(blocked)}")
@@ -108,10 +125,11 @@ _API_KEY = re.compile(
     r"|npm_[A-Za-z0-9]{36}"
     r")(?![\w-])"
 )
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b")
+_EMAIL = re.compile(r"[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){0,10}\.[A-Za-z]{2,}\b")
 # Charset-first patterns let `re` skip ahead fast; boundaries are checked in _ip_repl instead.
 _IPV4 = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}")
-_IPV6 = re.compile(r"[0-9A-Fa-f:]*:[0-9A-Fa-f]*:[0-9A-Fa-f:]*")
+_IPV6 = re.compile(r"(?<![0-9A-Fa-f:])(?=[0-9A-Fa-f]{0,4}:)[0-9A-Fa-f:]{2,39}(?![0-9A-Fa-f:])")
+SCRUB_CHUNK = 200_000  # bounds the work (and memory) of one regex pass over a huge page
 
 
 def _is_private_ip(s: str) -> bool:
@@ -132,7 +150,22 @@ def _ip_repl(m: re.Match) -> str:
     return "[PRIVATE_IP]" if _is_private_ip(s) else s
 
 
+def chunks(text: str, size: int):
+    """Slices of at most `size`, cut at a newline or space when there is one."""
+    i = 0
+    while i < len(text):
+        end = min(i + size, len(text))
+        if end < len(text):
+            cut = max(text.rfind("\n", i, end), text.rfind(" ", i, end))
+            end = cut + 1 if cut > i else end
+        yield text[i:end]
+        i = end
+
+
 def scrub(text: str, *, authenticated: bool = False, known_secrets: tuple[str, ...] = ()) -> str:
+    if len(text) > SCRUB_CHUNK:
+        return "".join(scrub(c, authenticated=authenticated, known_secrets=known_secrets)
+                       for c in chunks(text, SCRUB_CHUNK))  # fmt: skip
     lower = text.lower()
     if "bearer" in lower or "cookie" in lower or any(n in lower for n in _SECRET_NAMES):
         text = _SECRET.sub(lambda m: next(g for g in m.groups() if g) + "[REDACTED]", text)
