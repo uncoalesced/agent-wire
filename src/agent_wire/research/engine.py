@@ -132,9 +132,11 @@ class Researcher:
     async def _lobsters(self, query: str, limit: int) -> list[WireSearchHit]:
         """Lobsters search is bot-walled; its hottest JSON is open, so filter that."""
         data, _ = await self.ctx.channel("hackernews").fetch_json("https://lobste.rs/hottest.json")
+        if not isinstance(data, list):
+            raise TypeError(f"unexpected lobste.rs payload ({type(data).__name__})")
         want = set(terms(query))
         hits = []
-        for s in data:
+        for s in filter(lambda x: isinstance(x, dict), data):
             text = f"{s.get('title', '')} {' '.join(s.get('tags') or [])}".lower()
             if want and not any(w in text for w in want):
                 continue
@@ -152,7 +154,7 @@ class Researcher:
             try:
                 hits = await asyncio.wait_for(self._search(source, q, plan, limit), timeout)
                 return source, q, hits, None
-            except EXPECTED as e:
+            except Exception as e:  # noqa: BLE001  one odd payload must not abort the others
                 return source, q, [], f"{type(e).__name__}: {scrub(str(e))[:160]}"
 
         jobs = [one(s, q) for s in plan.sources for q in plan.queries.get(s) or []]
@@ -256,8 +258,12 @@ class Researcher:
         )
         for (idx, url), r in zip(picks, reads, strict=True):
             if isinstance(r, BaseException):
+                if not isinstance(r, Exception):
+                    raise r  # CancelledError / KeyboardInterrupt
                 if not isinstance(r, EXPECTED):
-                    raise r
+                    result.gaps.setdefault(
+                        "deep-read", f"{type(r).__name__}: {scrub(str(r))[:160]}"
+                    )
                 continue
             doc, _ = r
             if body := " ".join(scrub(doc.body).split()):
@@ -308,6 +314,8 @@ class Researcher:
 
         async def mastodon_trends():
             data, _ = await hn.fetch_json("https://mastodon.social/api/v1/trends/tags?limit=10")
+            if not isinstance(data, list):
+                raise TypeError(f"unexpected mastodon payload ({type(data).__name__})")
             return [WireSearchHit(url=t.get("url") or "", title=f"#{t.get('name')}", source="mastodon",
                                   engagement={"comments": sum(int(d.get("uses", 0))
                                                               for d in t.get("history") or [])})
@@ -330,8 +338,8 @@ class Researcher:
         items = []
         for source, r in zip(names, done, strict=True):
             if isinstance(r, BaseException):
-                if not isinstance(r, EXPECTED):
-                    raise r
+                if not isinstance(r, Exception):
+                    raise r  # CancelledError / KeyboardInterrupt
                 result.gaps[source] = f"{type(r).__name__}: {scrub(str(r))[:160]}"
                 continue
             items += [Item(hit=_aware(h).model_copy(update={"source": source})) for h in r]
