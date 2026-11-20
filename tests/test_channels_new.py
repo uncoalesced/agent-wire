@@ -231,6 +231,30 @@ def test_reddit_search_falls_back_to_pullpush(make_ctx, run):
     assert not any("arctic-shift" in u for u, _ in ctx.waterfall.calls)
 
 
+def test_reddit_json_search_honours_window_and_sort(make_ctx, run):
+    old = {**POST, "id": "old", "created_utc": int((NOW - timedelta(days=25)).timestamp())}
+    listing = {"data": {"children": [{"kind": "t3", "data": POST}, {"kind": "t3", "data": old}]}}
+    ctx = make_ctx({"search.json": listing})
+    hits = run(ctx.channel("reddit").search("uv", since=NOW - timedelta(days=3), sort="latest"))
+    url = ctx.waterfall.calls[0][0]
+    assert "t=week" in url and "sort=new" in url
+    assert len(hits) == 1  # the 25-day-old post is outside since, whatever the coarse t= window
+
+
+@pytest.mark.parametrize("sort, want", [("top", "top"), ("weird", "relevance"), ("new", "new")])
+def test_reddit_sort_is_mapped_to_reddits_enum(make_ctx, run, sort, want):
+    ctx = make_ctx({"search.json": {"data": {"children": []}}})
+    run(ctx.channel("reddit").search("uv", sort=sort))
+    assert f"sort={want}" in ctx.waterfall.calls[0][0]
+
+
+def test_reddit_pullpush_honours_sort(make_ctx, run):
+    routes = {"pullpush.io": {"data": [POST]}, "reddit.com": fetched(b"blocked", status=403)}
+    ctx = make_ctx(routes)
+    run(ctx.channel("reddit").search("uv python", sort="new"))
+    assert "sort_type=created_utc" in next(u for u, _ in ctx.waterfall.calls if "pullpush" in u)
+
+
 # ---- fediverse ----------------------------------------------------------------------------------
 
 

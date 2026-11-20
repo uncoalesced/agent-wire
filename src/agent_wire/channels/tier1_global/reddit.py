@@ -135,6 +135,16 @@ def rss_window(since: datetime | None) -> str:
                 "all")  # fmt: skip
 
 
+_SORT_ALIASES = {"latest": "new", "recent": "new", "date": "new"}
+_PULLPUSH_SORT = {"new": "created_utc", "comments": "num_comments"}
+
+
+def reddit_sort(sort: str) -> str:
+    """Reddit's search sort enum (relevance/hot/top/new/comments); anything else is relevance."""
+    sort = _SORT_ALIASES.get(sort, sort)
+    return sort if sort in ("relevance", "hot", "top", "new", "comments") else "relevance"
+
+
 def _path(url: str) -> str:
     parts = urlsplit(url)
     path = parts.path.rstrip("/")
@@ -212,7 +222,8 @@ class RedditChannel(Channel):
         return await self.ctx.channel("web").read(url, query=query, section=section)
 
     async def search(self, query, *, limit=5, sort="relevance", since=None):
-        window = "&t=month" if since else ""
+        sort = reddit_sort(sort)
+        window = f"&t={rss_window(since)}" if since else ""
         try:
             data, _ = await self._json(
                 "/search", f"q={quote(query)}&sort={sort}&limit={limit}{window}"
@@ -227,8 +238,10 @@ class RedditChannel(Channel):
             raise WireFetchError(
                 f"reddit search: no results from any fallback. {BLOCKED_HINT}"
             ) from blocked
-        return [post_hit(ch.get("data", {})) for ch in data.get("data", {}).get("children", [])
-                if ch.get("kind") == "t3"][:limit]  # fmt: skip
+        hits = [post_hit(ch.get("data", {})) for ch in data.get("data", {}).get("children", [])
+                if ch.get("kind") == "t3"]  # fmt: skip
+        # the t= window is coarse (7 days -> "week" covers 7, 2 days -> "week"): trim to `since`
+        return [h for h in hits if not since or not h.timestamp or h.timestamp >= since][:limit]
 
     async def _rss_search(self, query, limit, since, sort="relevance"):
         """Live search via the .rss endpoint, which stays open when .json is blocked."""
@@ -243,7 +256,12 @@ class RedditChannel(Channel):
         return hits[:limit]
 
     async def _pullpush_search(self, query, limit, since, sort="relevance"):
-        params = {"q": query, "size": min(limit * 2, 25), "sort_type": "score", "sort": "desc"}
+        params = {
+            "q": query,
+            "size": min(limit * 2, 25),
+            "sort_type": _PULLPUSH_SORT.get(sort, "score"),
+            "sort": "desc",
+        }
         if since:
             params["after"] = int(since.timestamp())
         data, _ = await self.fetch_json(f"{PULLPUSH}?{urlencode(params)}")
