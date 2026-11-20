@@ -125,7 +125,7 @@ class Plan:
 
 
 def terms(text: str) -> list[str]:
-    words = re.findall(r"[a-z0-9][a-z0-9+#.\-]*", text.lower())
+    words = re.findall(r"\w[\w+#.\-]*", text.lower())  # unicode letters, not just a-z
     return [w.strip(".-") for w in words if w not in _STOP and len(w) > 1]
 
 
@@ -203,6 +203,8 @@ def make_plan(topic: str = "", *, days: int = 30, sources=None, mode: str = "aut
             plan.sources.append("arxiv")
         if plan.tickers:
             plan.sources.append("stocktwits")
+    if topic and not terms(topic):
+        plan.notes.append("no searchable words in the topic; nothing can match it, try plain words")
     if "x" in plan.sources and not has_x_session:
         plan.sources.remove("x")
         plan.notes.append("x skipped: no saved session (`wire auth login x.com` adds it)")
