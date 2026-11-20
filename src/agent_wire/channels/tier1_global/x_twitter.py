@@ -127,7 +127,7 @@ def graphql_tweets(data) -> list[dict]:
                         "likes": legacy.get("favorite_count"), "retweets": legacy.get("retweet_count"),
                         "replies": legacy.get("reply_count"),
                         "views": (res.get("views") or {}).get("count"),
-                        "created": ts(_twitter_date(legacy.get("created_at"))),
+                        "created": ts(legacy.get("created_at")),
                         "reply_to": legacy.get("in_reply_to_status_id_str"),
                     })  # fmt: skip
             for v in o.values():
@@ -138,17 +138,6 @@ def graphql_tweets(data) -> list[dict]:
 
     walk(data)
     return out
-
-
-def _twitter_date(value):
-    from email.utils import parsedate_to_datetime
-
-    if not value:
-        return None
-    try:
-        return parsedate_to_datetime(value).isoformat()
-    except (TypeError, ValueError):
-        return value
 
 
 def tweet_items(tweets: list[dict]) -> list[dict]:
@@ -175,7 +164,7 @@ def parse_syndication_timeline(html: str) -> list[dict]:
                 "id": t.get("id_str"), "author": (t.get("user") or {}).get("screen_name"),
                 "text": t.get("full_text") or t.get("text", ""), "likes": t.get("favorite_count"),
                 "retweets": t.get("retweet_count"), "replies": t.get("reply_count"), "views": None,
-                "created": ts(_twitter_date(t.get("created_at"))),
+                "created": ts(t.get("created_at")),
             })  # fmt: skip
     return out
 

@@ -5,6 +5,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import ClassVar
 from urllib.parse import urlsplit
 
@@ -87,15 +88,18 @@ def on_host(url: str, domain: str) -> bool:
 
 
 def ts(value) -> datetime | None:
-    """Epoch seconds/ms or ISO-8601 -> aware datetime."""
+    """Epoch seconds/ms, ISO-8601 or RFC 822 (RSS pubDate, Twitter) -> aware datetime."""
     if value in (None, ""):
         return None
     try:
         if isinstance(value, int | float) or str(value).isdigit():
             v = float(value)
             return datetime.fromtimestamp(v / 1000 if v > 1e11 else v, UTC)
-        return datetime.fromisoformat(str(value))
-    except (ValueError, OSError, OverflowError):
+        try:
+            return datetime.fromisoformat(str(value))
+        except ValueError:
+            return parsedate_to_datetime(str(value))
+    except (TypeError, ValueError, OSError, OverflowError):
         return None
 
 
@@ -118,7 +122,7 @@ def listing(items: list[dict]) -> str:
     for i, it in enumerate(items, 1):
         bits = [b for b in (it.get("meta") or ()) if b not in (None, "")]
         title = " ".join(str(it.get("title") or it.get("url")).split())  # newlines break the link
-        head = f"{i}. [{title}]({it.get('url')})"
+        head = f"{i}. [{title}]({it['url']})" if it.get("url") else f"{i}. {title}"
         lines.append(head + (f" · {' · '.join(map(str, bits))}" if bits else ""))
         if snippet := (it.get("snippet") or "").strip():
             lines.append("   " + " ".join(snippet.split())[:280])

@@ -90,6 +90,8 @@ def test_ts_and_counts():
     assert ts(1700000000000) == ts(1700000000)
     assert ts("2024-01-02T03:04:05Z").year == 2024
     assert ts("garbage") is None
+    assert ts("Wed, 10 Oct 2018 20:19:24 +0000") == datetime(2018, 10, 10, 20, 19, 24, tzinfo=UTC)
+    assert ts("Wed Oct 10 20:19:24 +0000 2018").year == 2018  # Twitter's format
     assert compact_count("1.2K") == 1200 and compact_count("3,400 likes") == 3400
     assert compact_count("2M") == 2_000_000 and compact_count(None) == 0
 
@@ -230,6 +232,26 @@ def test_rss_atom_jsonfeed():
     jf = orjson.dumps({"title": "JF", "items": [{"id": "1", "url": "https://j/1", "title": "T",
                                                   "content_text": "body"}]})  # fmt: skip
     assert rss.parse_feed(jf)[1][0]["summary"] == "body"
+
+
+def test_rss_summary_prefers_description_over_empty_media_content():
+    xml = b"""<rss xmlns:media="http://search.yahoo.com/mrss/" version="2.0"><channel><title>B</title>
+<item><title>A</title><link>https://b/a</link><media:content url="https://b/x.jpg"/>
+<description>real summary</description></item>
+<item><title>No link</title></item></channel></rss>"""
+    _, items = rss.parse_feed(xml)
+    assert items[0]["summary"] == "real summary"
+    body = rss.render_items(items)
+    assert "[A](https://b/a)" in body and "2. No link" in body and "()" not in body
+
+
+def test_json_feed_converts_only_the_capped_items(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rss, "html_text", lambda h: calls.append(h) or h)
+    items = [{"id": str(i), "url": f"https://j/{i}", "title": "T", "content_html": "<p>x</p>"}
+             for i in range(200)]  # fmt: skip
+    _, out = rss.parse_feed(orjson.dumps({"title": "JF", "items": items}))
+    assert len(out) == rss.MAX_ITEMS == len(calls)
 
 
 def test_web_reader_hands_feeds_to_rss(make_ctx, run):

@@ -26,8 +26,12 @@ def _child(el, *names):
 
 
 def _text(el, *names) -> str:
-    c = _child(el, *names)
-    return (c.text or "").strip() if c is not None and c.text else ""
+    """First non-empty child text, trying `names` in priority order (<media:content> is empty)."""
+    for name in names:
+        for c in el:
+            if _local(c.tag) == name and (text := (c.text or "").strip()):
+                return text
+    return ""
 
 
 def parse_feed(content: bytes) -> tuple[str, list[dict]]:
@@ -43,7 +47,7 @@ def parse_feed(content: bytes) -> tuple[str, list[dict]]:
                 "date": ts(it.get("date_published")),
                 "summary": it.get("summary") or it.get("content_text") or html_text(it.get("content_html", "")),
             }
-            for it in data.get("items", [])
+            for it in data.get("items", [])[:MAX_ITEMS]  # slice first: html_text is the slow part
         ]  # fmt: skip
         return data.get("title", ""), items
 
@@ -74,22 +78,11 @@ def parse_feed(content: bytes) -> tuple[str, list[dict]]:
             {
                 "title": _text(e, "title"),
                 "url": link or _text(e, "guid", "id"),
-                "date": ts(_rfc822(_text(e, "pubDate", "published", "updated", "date"))),
+                "date": ts(_text(e, "pubDate", "published", "updated", "date")),
                 "summary": html_text(summary) if "<" in summary else summary,
             }
         )
     return title, items
-
-
-def _rfc822(value: str):
-    from email.utils import parsedate_to_datetime
-
-    if not value:
-        return None
-    try:
-        return parsedate_to_datetime(value).isoformat()
-    except (TypeError, ValueError):
-        return value  # already ISO-8601 (Atom)
 
 
 def render_items(items: list[dict]) -> str:
