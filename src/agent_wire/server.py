@@ -198,23 +198,23 @@ class Wire:
         """Return (dense markdown, tokens, raw tokens), or a one-line UNCHANGED notice."""
         comments = shield_comments(doc.comments)
         doc = doc.model_copy(update={"comments": comments})
+        doc = _fit(doc, query, budget)  # compare what is emitted: another query/budget is not "unchanged"
         header = ""
         if delta_check:
             full = render_document(doc)
             if force:
-                self.buffer.put(doc.url, full, _ids(comments))
+                self.buffer.put(doc.url, full, _ids(doc.comments), doc.body)
             else:
-                delta = self.buffer.observe(doc.url, full, _ids(comments))
+                delta = self.buffer.observe(doc.url, full, _ids(doc.comments), doc.body)
                 if delta.status == "unchanged":
                     return (f"[WIRE | UNCHANGED since {int(delta.age_s)}s ago | Saved {count_tokens(full)}"
                             f" tokens. Pass force=True to re-emit full text.] {doc.url}")  # fmt: skip
                 if delta.status == "delta":
                     header = f"DELTA UPDATE: +{len(delta.new_comment_ids)} new comments since {int(delta.age_s)}s ago"
                     doc = doc.model_copy(
-                        update={"body": "", "comments": _only(comments, set(delta.new_comment_ids))}
+                        update={"body": "", "comments": _only(doc.comments, set(delta.new_comment_ids))}
                     )
 
-        doc = _fit(doc, query, budget)
         text = self._scrub(doc, render_document(doc))
         if header:
             text = f"{header}\n\n{text}"
@@ -231,7 +231,7 @@ class Wire:
         if isinstance(rendered, str):
             return rendered
         text, tokens, raw = rendered
-        t = WireTelemetry(channel=doc.channel, tokens=tokens, saved_pct=round(100 * (1 - tokens / raw)),
+        t = WireTelemetry(channel=doc.channel, tokens=tokens, saved_pct=round(100 * (1 - tokens / max(raw, 1))),
                           auth=doc.auth, stage=doc.stage, elapsed_ms=elapsed_ms)  # fmt: skip
         return envelope(t, text)
 
