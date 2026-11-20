@@ -4,9 +4,10 @@ import re
 from collections import Counter
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-_TRACKING = re.compile(r"utm_\w*|fbclid|gclid|si|ref|spm", re.IGNORECASE)
+_TRACKING = re.compile(r"utm_\w*|fbclid|gclid", re.IGNORECASE)
 _URL = re.compile(r"https?://[^\s<>()\[\]\"']+")
-_MD_LINK = re.compile(r"(?<!!)\[([^\]]*)\]\((\S+?)\)")
+_MD_LINK = re.compile(r"(?<!!)\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)")
+_CODE = re.compile(r"```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`")
 
 
 def clean_url(url: str) -> str:
@@ -42,4 +43,12 @@ def compress_links(markdown: str) -> str:
 
 
 def compact(text: str) -> str:
-    return compress_links(_URL.sub(_clean_match, text))
+    """Clean and fold links outside code; fenced and inline code pass through untouched."""
+    code: list[str] = []
+
+    def stash(m: re.Match) -> str:
+        code.append(m[0])
+        return f"\x00{len(code) - 1}\x00"
+
+    out = compress_links(_URL.sub(_clean_match, _CODE.sub(stash, text)))
+    return re.sub(r"\x00(\d+)\x00", lambda m: code[int(m[1])], out)

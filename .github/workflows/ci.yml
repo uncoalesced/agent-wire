@@ -21,6 +21,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.31"
       - name: Lockfile matches pyproject.toml
         run: uv lock --check
       - name: Plugin lockfile matches its pinned release
@@ -51,6 +53,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          version: "0.11.31"
           python-version: ${{ matrix.python }}
       - name: Install
         run: uv sync --extra dev --locked
@@ -65,10 +68,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.31"
       - name: Build sdist and wheel
         run: uv build
       - name: Package metadata renders on PyPI
-        run: uvx twine check --strict dist/*
+        run: uvx twine==7.0.0 check --strict dist/*
       - name: Wheel bundles the skill, rules and sandbox, at the pyproject version
         run: |
           python - <<'EOF'
@@ -100,6 +105,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          version: "0.11.31"
           python-version: ${{ matrix.python }}
       - name: Build wheel
         run: uv build --wheel

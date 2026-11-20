@@ -40,6 +40,7 @@ def _stdin() -> str:
 
 
 def _run(profile: str, fn) -> None:
+    """Run fn(wire) with a Wire that is always closed; print the returned text."""
     from agent_wire.server import Wire
 
     _utf8()
@@ -160,6 +161,10 @@ def install(
             typer.echo(f"  {'would write' if dry_run else 'wrote'} {f}")
         for note in r.notes:
             typer.echo(f"  note: {note}")
+        if r.error:
+            typer.echo(f"  FAILED: {r.error}", err=True)
+    if any(r.error for r in results):
+        raise typer.Exit(2)
 
 
 @app.command()
@@ -252,22 +257,6 @@ def run_script(
     _run(profile, lambda w: w.run(code, max_tokens))
 
 
-def _wire_call(profile: str, fn):
-    """Run fn(wire) with a Wire that is always closed; print the returned text."""
-    from agent_wire.server import Wire
-
-    _utf8()
-
-    async def go():
-        wire = Wire(profile)
-        try:
-            return await fn(wire)
-        finally:
-            await wire.close()
-
-    typer.echo(asyncio.run(go()))
-
-
 @watch_app.command("add")
 def watch_add(
     topic: str,
@@ -296,7 +285,7 @@ def watch_add(
             + ")"
         )
 
-    _wire_call("standard", add)
+    _run("standard", add)
 
 
 @watch_app.command("list")
@@ -315,7 +304,7 @@ def watch_list() -> None:
             or "no watched topics"
         )
 
-    _wire_call("standard", ls)
+    _run("standard", ls)
 
 
 @watch_app.command("remove")
@@ -325,7 +314,7 @@ def watch_remove(topic: str) -> None:
     async def rm(w):
         return f"removed {topic!r}" if w.store.remove_watch(topic) else f"not watching {topic!r}"
 
-    _wire_call("standard", rm)
+    _run("standard", rm)
 
 
 @watch_app.command("run")
@@ -335,7 +324,7 @@ def watch_run(
     """Re-run watched topics and show only new findings (schedule this with cron / Task Scheduler)."""
     from agent_wire.research.watch import run_watches
 
-    _wire_call("standard", lambda w: run_watches(w, topic))
+    _run("standard", lambda w: run_watches(w, topic))
 
 
 @app.command()
@@ -346,7 +335,7 @@ def brief(
     """Digest across every watched topic, plus what's trending; saved under the library."""
     from agent_wire.research.briefing import digest
 
-    _wire_call("standard", lambda w: digest(w, period, trending=not no_trending))
+    _run("standard", lambda w: digest(w, period, trending=not no_trending))
 
 
 @library_app.command("search")
@@ -356,7 +345,7 @@ def library_search(query: str, limit: int = 10) -> None:
     async def s(w):
         return w.library.search_markdown(query, limit)
 
-    _wire_call("standard", s)
+    _run("standard", s)
 
 
 @library_app.command("list")
@@ -368,7 +357,7 @@ def library_list(limit: int = 20) -> None:
         return "\n".join(f"#{r['id']} · {r['created_at'][:16]} · {r['topic']} ({r['mode']}, {r['days']}d)"
                          f" · {r['headline']}" for r in rows) or "library is empty (research --store)"  # fmt: skip
 
-    _wire_call("standard", ls)
+    _run("standard", ls)
 
 
 @library_app.command("show")
@@ -379,7 +368,7 @@ def library_show(run_id: int) -> None:
         run = w.store.run(run_id)
         return run["markdown"] if run else f"no run #{run_id}"
 
-    _wire_call("standard", show)
+    _run("standard", show)
 
 
 @library_app.command("feed")
@@ -390,7 +379,7 @@ def library_feed() -> None:
         out = w.library.build()
         return f"wrote {out / 'index.html'} and {out / 'feed.xml'}"
 
-    _wire_call("standard", build)
+    _run("standard", build)
 
 
 @app.command()

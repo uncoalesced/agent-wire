@@ -139,6 +139,14 @@ def select(costs: list[int], scores: list[float], budget: int) -> list[int]:
     return sorted(kept)
 
 
+def _oversized_best(costs: list[int], scores: list[float], budget: int) -> int | None:
+    """Index of the top-ranked item when it has signal but is too big for `budget`."""
+    if not costs or budget <= 0:
+        return None
+    best = max(range(len(costs)), key=lambda i: (scores[i], -i))
+    return best if scores[best] > 0 and costs[best] > budget else None
+
+
 def slice_text(text: str, query: str | None = None, max_tokens: int = 3000) -> str:
     if count_tokens(text) <= max_tokens:
         return text
@@ -154,11 +162,18 @@ def slice_text(text: str, query: str | None = None, max_tokens: int = 3000) -> s
         used += costs[lead]
         lead += 1
     if lead == 0:
-        blocks[0] = truncate_tokens(blocks[0], lead_budget)
+        # A long first block is cut to the lead size, unless the query points at it: then it
+        # keeps up to the whole budget.
+        relevant = bool(query) and bm25_scores(blocks, query)[0] > 0
+        blocks[0] = truncate_tokens(blocks[0], max_tokens if relevant else lead_budget)
         used, lead = count_tokens(blocks[0]) + 1, 1
 
     rest = blocks[lead:]
-    kept = select(costs[lead:], bm25_scores(rest, query or ""), max_tokens - used)
+    scores = bm25_scores(rest, query or "")
+    room = max_tokens - used
+    if (big := _oversized_best(costs[lead:], scores, room)) is not None:
+        return "\n\n".join([*blocks[:lead], truncate_tokens(rest[big], room - 1)])
+    kept = select(costs[lead:], scores, room)
     return "\n\n".join(blocks[:lead] + [rest[i] for i in kept])
 
 
@@ -176,5 +191,8 @@ def rank_comments(
         bm[i] + W_ACCEPTED * c.is_accepted + W_OP * c.is_op + math.log1p(max(0, c.score))
         for i, c in enumerate(comments)
     ]
-    kept = select([count_tokens(t) for t in texts], scores, max_tokens)
-    return [comments[i] for i in kept]
+    costs = [count_tokens(t) for t in texts]
+    if (big := _oversized_best(costs, scores, max_tokens)) is not None:
+        c = comments[big]
+        return [c.model_copy(update={"body": truncate_tokens(c.body, max_tokens), "replies": []})]
+    return [comments[i] for i in select(costs, scores, max_tokens)]

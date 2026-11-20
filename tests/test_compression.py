@@ -36,7 +36,10 @@ def test_slice_section():
 
 
 def test_clean_url():
-    assert clean_url("https://ex.com/a?utm_source=x&id=5&fbclid=y&si=z") == "https://ex.com/a?id=5"
+    assert (
+        clean_url("https://ex.com/a?utm_source=x&id=5&fbclid=y&si=z")
+        == "https://ex.com/a?id=5&si=z"
+    )
     assert clean_url("https://ex.com/a?q=a%20b&page=2") == "https://ex.com/a?q=a%20b&page=2"
 
 
