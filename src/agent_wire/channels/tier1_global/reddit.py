@@ -15,7 +15,15 @@ from urllib.parse import quote, urlencode, urlsplit
 
 import defusedxml.ElementTree as ET  # untrusted feeds: no entity expansion, no DTDs
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, on_host, ts
+from agent_wire.channels.base import (
+    STOP_WORDS,
+    Channel,
+    WireUnsupported,
+    html_text,
+    listing,
+    on_host,
+    ts,
+)
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.firewall.outbound_privacy import parse_json
 from agent_wire.models import WireComment, WireSearchHit
@@ -25,8 +33,6 @@ ARCTIC = "https://arctic-shift.photon-reddit.com/api"
 PULLPUSH = "https://api.pullpush.io/reddit/search/submission/"
 ATOM = "{http://www.w3.org/2005/Atom}"
 ARCTIC_NOTE = "Arctic Shift archive copy (scores/comments as captured, not live)"
-_STOP = frozenset({"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "vs",
-                   "versus", "what", "is", "are", "how", "why", "best", "new"})  # fmt: skip
 PRUNE_DEPTH, PRUNE_SCORE = 3, 2
 BLOCKED_HINT = (
     "Reddit blocks anonymous access from this network. Set REDDIT_CLIENT_ID (a free 'installed app' "
@@ -299,7 +305,7 @@ class RedditChannel(Channel):
     async def subreddits_for(self, query: str, n: int = 3) -> list[str]:
         """Dedicated-subreddit discovery: subreddits whose names start with a topic word."""
         words = [
-            w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 2 and w not in _STOP
+            w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 2 and w not in STOP_WORDS
         ]
         if m := re.findall(r"\br/(\w+)", query):
             return m[:n]
@@ -320,7 +326,7 @@ class RedditChannel(Channel):
         if not subs:
             raise WireFetchError(f"reddit search: no matching subreddits found. {BLOCKED_HINT}")
         words = [w for w in re.findall(r"[A-Za-z0-9+#.]+", re.sub(r"\br/\w+", "", query))
-                 if w.lower() not in _STOP]  # fmt: skip
+                 if w.lower() not in STOP_WORDS]  # fmt: skip
         after = since.date().isoformat() if since else None
         cap = min(limit * 2, 25)
         hits, seen = [], set()

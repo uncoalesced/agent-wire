@@ -116,6 +116,9 @@ def relative_ts(text: str | None, now: datetime | None = None) -> datetime | Non
     return (now or datetime.now(UTC)) - timedelta(seconds=int(m[1]) * _REL_S[m[2].lower()])
 
 
+# Filler words dropped when a query is turned into tags / subreddit names.
+STOP_WORDS = frozenset({"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "vs",
+                        "versus", "what", "is", "are", "how", "why", "best", "new"})  # fmt: skip
 MAX_COMMENTS = 400  # per thread, for platforms whose API returns every reply
 
 
