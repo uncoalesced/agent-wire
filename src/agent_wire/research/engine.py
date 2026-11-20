@@ -130,7 +130,7 @@ def _accepts_since(fn) -> bool:
 
 def mentions(item: Item, subjects: list[str]) -> list[str]:
     text = f"{item.hit.title} {item.hit.snippet}".lower()
-    return [s for s in subjects if all(t in text for t in terms(s))]
+    return [s for s in subjects if (t := terms(s)) and all(w in text for w in t)]
 
 
 class Researcher:
@@ -160,7 +160,7 @@ class Researcher:
         hits = []
         for s in filter(lambda x: isinstance(x, dict), data):
             text = f"{s.get('title', '')} {' '.join(s.get('tags') or [])}".lower()
-            if want and not any(w in text for w in want):
+            if query and not any(w in text for w in want):
                 continue
             hits.append(WireSearchHit(
                 url=s.get("short_id_url") or s.get("comments_url") or "", title=s.get("title") or "",

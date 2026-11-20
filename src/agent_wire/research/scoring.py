@@ -39,7 +39,9 @@ def relevance(hit: WireSearchHit, topic: str) -> float:
     """Share of topic terms present (title counts fully, snippet partly) + exact-phrase bonus."""
     want = list(dict.fromkeys(terms(topic)))
     if not want:
-        return 1.0
+        return (
+            0.0 if topic.strip() else 1.0
+        )  # an empty topic (discover) matches all; filler words none
     title, body = hit.title.lower(), f"{hit.snippet} {hit.author or ''}".lower()
     got = sum(1.0 if t in title else 0.6 if t in body else 0.0 for t in want) / len(want)
     if topic.lower().strip() in title:
