@@ -53,6 +53,8 @@ def _flag(r: ResearchResult, url: str) -> str:
         return ""
     if c.verdict == "BLOCKED":
         return " ⚠ unverified (site blocks bots)"
+    if c.verdict == "UNREACHABLE":
+        return f" ⚠ unreachable ({c.note}; could not reach it, retry)"
     why = f"HTTP {c.status}" if c.status and c.verdict != "SOFT_404" else c.note
     word = "dead" if c.verdict != "SOFT_404" else "content gone"
     return f" ⚠ {word} ({why})" + (f" · [archived]({c.archive})" if c.archive else "")
@@ -141,7 +143,12 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
         ]
     if r.link_status:
         bad = sum(1 for c in r.link_status.values() if c.bad)
-        out += ["", f"_Links checked: {len(r.link_status)} opened, {bad} dead or gone (marked ⚠)._"]
+        down = sum(1 for c in r.link_status.values() if c.verdict == "UNREACHABLE")
+        more = f", {down} unreachable (retry)" if down else ""
+        out += [
+            "",
+            f"_Links checked: {len(r.link_status)} opened, {bad} dead or gone{more} (marked ⚠)._",
+        ]
     return "\n".join(out).strip()
 
 
