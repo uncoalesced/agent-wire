@@ -25,6 +25,12 @@ def parse_pypi_search(html: str) -> list[WireSearchHit]:
     return hits
 
 
+# huggingface.co/<first>/... pages that are not <owner>/<model> repos
+_HF_SITE = frozenset({"api", "blog", "chat", "collections", "docs", "enterprise", "join", "learn",
+                      "login", "models", "new", "organizations", "papers", "posts", "pricing",
+                      "settings", "spaces", "tasks", "welcome"})  # fmt: skip
+
+
 class HubsChannel(Channel):
     name = "hubs"
 
@@ -39,15 +45,10 @@ class HubsChannel(Channel):
         if host == "crates.io" and segs[:1] == ["crates"] and len(segs) > 1:
             return await self._crate(url, segs[1])
         if host == "huggingface.co" and segs:
-            kind = (
-                "datasets"
-                if segs[0] == "datasets"
-                else "spaces"
-                if segs[0] == "spaces"
-                else "models"
-            )
-            repo = "/".join(segs[1:3] if kind != "models" else segs[:2])
-            return await self._hf(url, kind, repo)
+            kind = segs[0] if segs[0] in ("datasets", "spaces") else "models"
+            if len(segs) >= 2 and (kind != "models" or segs[0] not in _HF_SITE):
+                repo = "/".join(segs[1:3] if kind != "models" else segs[:2])
+                return await self._hf(url, kind, repo)
         return await self.ctx.channel("web").read(url, query=query, section=section)
 
     async def _pypi(self, url, name, version):

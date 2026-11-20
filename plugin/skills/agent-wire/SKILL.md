@@ -39,7 +39,7 @@ You have direct live internet and platform access through the `agent_wire` MCP s
 
    - Cite only links you read or that a wire tool returned. Never invent a URL, outlet, author or quote.
    - If you have no source for a claim, write `[[UNSOURCED]]` right after it. It is a reserved marker: `wire_cite` lists those claims so you either find a source (`wire_search`) or tell the user plainly that the claim is unverified.
-   - Before sending any answer that cites sources, call `wire_cite(text="<your answer>")`. It opens every link and reports `OK`, `DEAD`, `ARCHIVED` (use the Wayback copy it gives and say the original is gone), `SOFT_404`, `BLOCKED` (exists but unverified, keep it and say so), `QUOTE_MISSING` (the quoted words are not on the page), and links agent-wire never returned this session (read them before citing).
+   - Before sending any answer that cites sources, call `wire_cite(text="<your answer>")`. It opens every link and reports `OK`, `DEAD`, `ARCHIVED` (use the Wayback copy it gives and say the original is gone), `SOFT_404`, `BLOCKED` (exists but unverified, keep it and say so), `UNREACHABLE` (timed out or server error, retry before judging), `QUOTE_MISSING` (the quoted words are not on the page), and links agent-wire never returned this session (read them before citing).
    - For a dead link, run the `wire_search` it suggests, or ask the user or a sub-agent for an alternative. Do not silently drop or keep a dead citation.
    - `wire_research` briefs already check their web and news links and mark failures with ⚠.
    - Links a `wire_run` script read count as returned by agent-wire; inside a script, `wire.cite(text)` returns the same verdicts as data.

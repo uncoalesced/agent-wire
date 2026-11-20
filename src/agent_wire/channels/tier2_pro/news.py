@@ -9,13 +9,12 @@ import asyncio
 import json
 import re
 from datetime import UTC, datetime, timedelta
-from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 
 import defusedxml.ElementTree as ET  # untrusted feeds: no entity expansion, no DTDs
 from curl_cffi.requests.exceptions import RequestException
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing
+from agent_wire.channels.base import Channel, WireUnsupported, html_text, listing, ts
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.models import WireSearchHit
 
@@ -31,13 +30,6 @@ _WORD = re.compile(r"[a-z0-9+#]+")
 _OUTLET = re.compile(r"\s*\((?:[A-Z][\w.&' -]{1,40})\)\s*$")  # "... (Bloomberg)"
 
 
-def _date(text: str | None) -> datetime | None:
-    try:
-        return parsedate_to_datetime(text) if text else None
-    except (TypeError, ValueError):
-        return None
-
-
 def parse_rss_items(content: bytes) -> list[dict]:
     try:
         root = ET.fromstring(content)
@@ -47,7 +39,7 @@ def parse_rss_items(content: bytes) -> list[dict]:
     for it in root.iter("item"):
         src = it.find("source")
         out.append({"title": (it.findtext("title") or "").strip(), "url": it.findtext("link") or "",
-                    "date": _date(it.findtext("pubDate")), "desc": it.findtext("description") or "",
+                    "date": ts(it.findtext("pubDate")), "desc": it.findtext("description") or "",
                     "source": src.text if src is not None else None})  # fmt: skip
     return out
 

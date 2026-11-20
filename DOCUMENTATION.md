@@ -89,7 +89,7 @@ Visible text is judged more strictly than hidden text. A security article that q
 
 ## Citations
 
-Write `[[UNSOURCED]]` after a claim with no source, and run `wire_cite` on an answer before sending it. It reports `OK`, `DEAD`, `ARCHIVED` (with the Wayback copy), `SOFT_404`, `BLOCKED`, `QUOTE_MISSING`, and links agent-wire never returned this session.
+Write `[[UNSOURCED]]` after a claim with no source, and run `wire_cite` on an answer before sending it. It reports `OK`, `DEAD`, `ARCHIVED` (with the Wayback copy), `SOFT_404`, `BLOCKED`, `UNREACHABLE`, `QUOTE_MISSING`, and links agent-wire never returned this session.
 
 ## Code Mode
 

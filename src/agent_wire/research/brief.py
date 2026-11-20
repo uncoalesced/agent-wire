@@ -53,6 +53,8 @@ def _flag(r: ResearchResult, url: str) -> str:
         return ""
     if c.verdict == "BLOCKED":
         return " ⚠ unverified (site blocks bots)"
+    if c.verdict == "UNREACHABLE":
+        return f" ⚠ unreachable ({c.note}; could not reach it, retry)"
     why = f"HTTP {c.status}" if c.status and c.verdict != "SOFT_404" else c.note
     word = "dead" if c.verdict != "SOFT_404" else "content gone"
     return f" ⚠ {word} ({why})" + (f" · [archived]({c.archive})" if c.archive else "")
@@ -65,9 +67,9 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
     out = [f"# {title_of(r)}", ""]
     srcs = ", ".join(f"{s} {c}" for s, c in sorted(r.counts.items(), key=lambda kv: -kv[1]))
     if p.mode == "person":
-        out.append(f"Window {p.since.date()} → {p.until.date()}")
+        out.append(f"Window {p.since.date()} → {p.last_day}")
     else:
-        out.append(f"Window {p.since.date()} → {p.until.date()} · {len(r.items)} items in "
+        out.append(f"Window {p.since.date()} → {p.last_day} · {len(r.items)} items in "
                    f"{len(r.clusters)} stories · {srcs or 'no sources answered'}")  # fmt: skip
 
     if r.topics:
@@ -134,9 +136,19 @@ def to_markdown(r: ResearchResult, max_clusters: int | None = None) -> str:
         out += ["", "## Not covered"]
         out += [f"- {s}: {why}" for s, why in sorted(r.gaps.items())]
         out += [f"- {note}" for note in p.notes]
+    if undated := sum(1 for i in r.items if i.hit.timestamp is None):
+        out += [
+            "",
+            f"_{undated} items have no date (their source gives none) and may predate the window._",
+        ]
     if r.link_status:
         bad = sum(1 for c in r.link_status.values() if c.bad)
-        out += ["", f"_Links checked: {len(r.link_status)} opened, {bad} dead or gone (marked ⚠)._"]
+        down = sum(1 for c in r.link_status.values() if c.verdict == "UNREACHABLE")
+        more = f", {down} unreachable (retry)" if down else ""
+        out += [
+            "",
+            f"_Links checked: {len(r.link_status)} opened, {bad} dead or gone{more} (marked ⚠)._",
+        ]
     return "\n".join(out).strip()
 
 

@@ -103,6 +103,11 @@ class Plan:
     def deep_reads(self) -> int:
         return DEPTHS[self.depth]["deep_reads"]
 
+    @property
+    def last_day(self):
+        """The last day the window covers: a bare --as-of date ends at the next midnight."""
+        return (self.until - timedelta(seconds=1)).date()
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["since"], d["until"] = self.since.isoformat(), self.until.isoformat()
@@ -110,7 +115,7 @@ class Plan:
 
     def describe(self) -> str:
         """--preflight: what would run, without running it."""
-        window = f"{self.since.date()} -> {self.until.date()} ({self.days} days)"
+        window = f"{self.since.date()} -> {self.last_day} ({self.days} days)"
         lines = [f"mode: {self.mode} · depth: {self.depth} · window: {window}"]
         if self.subjects:
             lines.append("subjects: " + " | ".join(self.subjects))
@@ -125,7 +130,7 @@ class Plan:
 
 
 def terms(text: str) -> list[str]:
-    words = re.findall(r"[a-z0-9][a-z0-9+#.\-]*", text.lower())
+    words = re.findall(r"\w[\w+#.\-]*", text.lower())  # unicode letters, not just a-z
     return [w.strip(".-") for w in words if w not in _STOP and len(w) > 1]
 
 
@@ -203,6 +208,8 @@ def make_plan(topic: str = "", *, days: int = 30, sources=None, mode: str = "aut
             plan.sources.append("arxiv")
         if plan.tickers:
             plan.sources.append("stocktwits")
+    if topic and not terms(topic):
+        plan.notes.append("no searchable words in the topic; nothing can match it, try plain words")
     if "x" in plan.sources and not has_x_session:
         plan.sources.remove("x")
         plan.notes.append("x skipped: no saved session (`wire auth login x.com` adds it)")

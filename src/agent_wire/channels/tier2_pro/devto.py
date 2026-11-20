@@ -1,18 +1,22 @@
 """DEV Community (dev.to public API, no key): developer write-ups by tag, with reactions."""
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from urllib.parse import quote, urlsplit
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, listing, ts
+from agent_wire.channels.base import (
+    STOP_WORDS,
+    Channel,
+    WireUnsupported,
+    html_to_markdown,
+    listing,
+    ts,
+)
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.models import WireComment, WireSearchHit
 
 API = "https://dev.to/api"
-
-
-_STOP = frozenset({"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "vs",
-                   "versus", "what", "is", "are", "how", "why", "best", "new"})  # fmt: skip
 
 
 def tag_of(text: str) -> str:
@@ -22,7 +26,7 @@ def tag_of(text: str) -> str:
 
 def tag_candidates(text: str) -> list[str]:
     """Most to least specific: acronym ('model context protocol' -> mcp), joined words, longest word."""
-    words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _STOP]
+    words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in STOP_WORDS]
     if not words:
         raise WireUnsupported("devto: give a topic word, e.g. 'rust' or 'webdev'")
     out = []
@@ -63,7 +67,7 @@ class DevToChannel(Channel):
 
     async def search(self, query, *, limit=5, sort="relevance", since=None):
         days = 30 if since is None else max(1, (datetime.now(UTC) - since).days)
-        words = {w for w in re.findall(r"[a-z0-9]+", query.lower()) if w not in _STOP}
+        words = {w for w in re.findall(r"[a-z0-9]+", query.lower()) if w not in STOP_WORDS}
         tags = tag_candidates(query)
         for tag in tags:
             last = tag == tags[-1]
@@ -102,7 +106,7 @@ class DevToChannel(Channel):
         comments = []
         if include_comments and a.get("id"):
             raw, _ = await self.fetch_json(f"{API}/comments?a_id={a['id']}")
-            comments = _comments(raw)
+            comments = await asyncio.to_thread(_comments, raw)
         return self.doc(
             f, url, title=a.get("title"), author_handle=(a.get("user") or {}).get("username"),
             timestamp=ts(a.get("published_at")), score=a.get("public_reactions_count"),

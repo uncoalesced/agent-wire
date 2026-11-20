@@ -58,6 +58,12 @@ class StealthBrowser:
                 await context.close()
 
 
+def _domain_match(host: str, domain: str) -> bool:
+    d = domain.lstrip(".").lower()
+    h = host.lower()
+    return h == d or h.endswith("." + d)
+
+
 async def _still_challenged(page) -> bool:
     html = (await page.content())[:65_536].lower().encode()
     return any(s in html for s in _HARD)
@@ -75,9 +81,23 @@ async def _guard(route) -> None:
     await route.continue_()
 
 
+_NO_WEBSOCKET = (
+    "for (const k of ['WebSocket','WebTransport','RTCPeerConnection'])"
+    " { try { Object.defineProperty(window, k, {value: undefined}); } catch (e) {} }"
+)
+
+
+async def _drop_websocket(ws) -> None:
+    await ws.close()
+
+
 async def _capture(context, url: str):
     if not private_allowed():
+        # context.route never sees WebSockets, which would reach inward past the guard: shut them.
         await context.route("**/*", _guard)
+        await context.add_init_script(_NO_WEBSOCKET)
+        if hasattr(context, "route_web_socket"):
+            await context.route_web_socket("**/*", _drop_websocket)
     page = await context.new_page()
     response = await page.goto(url, wait_until="load", timeout=NAV_TIMEOUT_MS)
     try:
@@ -95,7 +115,7 @@ async def _capture(context, url: str):
         (
             c["value"]
             for c in await context.cookies()
-            if c["name"] == "cf_clearance" and host.endswith(c["domain"].lstrip("."))
+            if c["name"] == "cf_clearance" and _domain_match(host, c["domain"])
         ),
         None,
     )

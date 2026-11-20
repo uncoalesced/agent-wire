@@ -9,6 +9,8 @@ from agent_wire.channels.base import Channel, WireUnsupported, compact_count, js
 from agent_wire.engine.waterfall import WireFetchError
 
 IG_APP_ID = "936619743392459"  # public id the Instagram web app sends with every request
+_IG_RESERVED = frozenset({"about", "accounts", "challenge", "developer", "direct", "directory",
+                          "explore", "legal", "reels", "stories", "web"})  # fmt: skip
 _IG_POST = re.compile(r"/(?:p|reel|reels|tv)/([\w-]+)")
 
 
@@ -82,7 +84,7 @@ class MetaSocialChannel(Channel):
                 f = await self._ig(url)
                 return self.doc(f, url, **parse_og_social(f.text))
             user = p.path.strip("/").split("/")[0]
-            if user:
+            if user and user not in _IG_RESERVED:
                 try:
                     data, f = await self.fetch_json(
                         f"https://www.instagram.com/api/v1/users/web_profile_info/?username={user}",

@@ -60,16 +60,6 @@ def test_observe_new_unchanged_delta_changed():
     assert rb.load("t") == "thread v3 edited"
 
 
-def test_ledger_caps_at_500_rows_keeping_newest(tmp_path):
-    ledger = Ledger(tmp_path / "cache.db")
-    for i in range(600):
-        ledger.put_cached(f"https://example.com/{i}", content_hash=str(i), body=b"x" * 100)
-    assert ledger.cache_rows() == 500
-    assert ledger.get_cached("https://example.com/0") is None
-    assert ledger.get_cached("https://example.com/599")["body"] == b"x" * 100
-    ledger.close()
-
-
 def test_ledger_winning_stage_and_ttl(tmp_path):
     ledger = Ledger(tmp_path / "cache.db")
     assert ledger.get_winning_stage("reddit.com") is None

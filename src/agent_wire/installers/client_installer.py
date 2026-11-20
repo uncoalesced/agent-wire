@@ -1,18 +1,23 @@
 """Install agent-wire into agent clients, keeping config, cache and vault inside each client's folder.
 
 Existing configs are merged, never clobbered: other servers and keys survive, a file that isn't
-valid JSON/TOML is refused instead of overwritten, and re-running is idempotent.
+valid JSON/TOML is refused instead of overwritten, and re-running is idempotent. Every write is
+atomic, and a file whose content changes is copied to `<name>.bak` first (once per run); a file
+that would not change is left alone.
 """
 
 import json
 import os
 import re
+import shutil
 import sys
 import tomllib
 from dataclasses import dataclass, field
 from importlib import metadata, resources
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+
+from agent_wire import __version__
 
 SERVER = "agent_wire"
 CLIENTS = ("claude-code", "codex", "hermes", "antigravity", "claude-desktop", "peridot", "cursor",
@@ -31,6 +36,7 @@ class Result:
     client: str
     files: list[Path] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    error: str = ""
 
 
 @dataclass
@@ -40,6 +46,7 @@ class Target:
     profile: str
     global_: bool
     dry_run: bool
+    backed_up: set[Path] = field(default_factory=set)
 
 
 def asset(name: str) -> str:
@@ -94,7 +101,16 @@ def server_entry(profile: str, wire_home: Path) -> dict:
 def _write(path: Path, text: str, t: Target, r: Result) -> None:
     if not t.dry_run:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        old = path.read_text(encoding="utf-8") if path.exists() else None
+        if old != text:
+            if old is not None and path not in t.backed_up:
+                shutil.copy2(path, path.with_name(path.name + ".bak"))
+                t.backed_up.add(path)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            if old is not None:
+                shutil.copymode(path, tmp)
+            os.replace(tmp, path)
     r.files.append(path)
 
 
@@ -200,9 +216,10 @@ def _hermes(t: Target, r: Result) -> None:
 
 
 def _antigravity(t: Target, r: Result) -> None:
-    base = (t.home / ".gemini" / "antigravity") if t.global_ else (t.project / ".agent")
-    entry = server_entry(t.profile, base / ".wire")
-    _merge_json(t.home / ".gemini" / "antigravity" / "mcp_config.json", "mcpServers", entry, t, r)
+    user = t.home / ".gemini" / "antigravity"  # the MCP config is user-wide, so its home is too
+    base = user if t.global_ else t.project / ".agent"
+    entry = server_entry(t.profile, user / ".wire")
+    _merge_json(user / "mcp_config.json", "mcpServers", entry, t, r)
     _write(base / "skills" / "agent-wire" / "SKILL.md", asset("SKILL.md"), t, r)
     _write(base / "agents" / "wire-worker.md", asset("wire-worker.md"), t, r)
 
@@ -261,7 +278,7 @@ def _gemini(t: Target, r: Result) -> None:
     base = t.home / ".gemini" / "extensions" / "agent-wire"
     manifest = {
         "name": "agent-wire",
-        "version": "0.1.0",
+        "version": __version__,
         "description": "Live web and platform access: token-compressed, privacy-firewalled.",
         "contextFileName": "GEMINI.md",
         "mcpServers": {SERVER: server_entry(t.profile, base / ".wire")},
@@ -310,6 +327,11 @@ def install(client: str, *, project: Path, home: Path, profile: str = "standard"
     results = []
     for name in names:
         r = Result(name)
-        WRITERS[name](target, r)
+        try:
+            WRITERS[name](target, r)
+        except ValueError as e:
+            if len(names) == 1:
+                raise
+            r.error = str(e)
         results.append(r)
     return results
