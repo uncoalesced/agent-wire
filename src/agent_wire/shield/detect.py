@@ -30,7 +30,9 @@ STRONG = {
         r"chat\s+history|system\s+prompt)\b",
         _I,
     ),
-    "markdown-beacon": re.compile(r"!\[[^\]\n]{0,80}\]\(https?://[^)\s]+\?[^)\s]*=[^)\s]+\)"),
+    "markdown-beacon": re.compile(
+        r"!\[[^\]\n]{0,80}\]\(https?://[^)\s?]{1,500}\?[^)\s=]{0,500}=[^)\s]{1,500}\)"
+    ),
 }
 
 WEAK = {
@@ -52,7 +54,7 @@ WEAK = {
     ),
     "chat-tokens": re.compile(
         r"<\|(?:im_start|im_end|system|endoftext|eot_id|start_header_id)\|>|\[/?INST\]"
-        r"|^\s*(?:system|assistant)\s*:",
+        r"|^[ \t]*(?:system|assistant)[ \t]*:",
         _I | re.MULTILINE,
     ),
 }
@@ -66,18 +68,21 @@ _HINT = re.compile(
 )
 
 
+SCAN_CHUNK = 200_000
+
+
 def find(text: str) -> list[tuple[str, bool, str]]:
     """[(rule_id, strong, matched text with context)] for instruction-like text."""
     if not text or not _HINT.search(text):
         return []
-    hits = []
-    for rule_id, rx in STRONG.items():
-        if m := rx.search(text):
-            hits.append((rule_id, True, _around(text, m)))
-    for rule_id, rx in WEAK.items():
-        if m := rx.search(text):
-            hits.append((rule_id, False, _around(text, m)))
-    return hits
+    hits: dict[str, tuple[str, bool, str]] = {}
+    for i in range(0, len(text), SCAN_CHUNK):  # bounded work per pass, whatever the page size
+        part = text[i : i + SCAN_CHUNK + 200]  # overlap so a match on a boundary is still seen
+        for strong, rules in ((True, STRONG), (False, WEAK)):
+            for rule_id, rx in rules.items():
+                if rule_id not in hits and (m := rx.search(part)):
+                    hits[rule_id] = (rule_id, strong, _around(part, m))
+    return list(hits.values())
 
 
 def _around(text: str, m: re.Match, pad: int = 30) -> str:

@@ -26,6 +26,7 @@ FLAGGED = "flagged-only"  # visible text: wrapped as untrusted data and flagged,
 
 SESSION_ID = secrets.token_hex(4)
 SNIPPET_CHARS = 120
+MAX_ALERTS = 50  # per tool call; the rest are counted into one "+N more" alert
 
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[\]PX^_].*?(?:\x07|\x1b\\)|\x1b.", re.DOTALL)
 # C0/C1 controls, bidi controls and isolates, zero-width and tag characters.
@@ -98,6 +99,23 @@ class Recorder:
         self.alerts: list[Alert] = []
         self.counts: Counter[str] = Counter()  # T0 rule_id -> how many
         self._seen: set[tuple] = set()
+        self.dropped = 0  # events past MAX_ALERTS
+        self.dropped_tier = T1
+
+    def overflow(self, rule_id: str, tier: int) -> None:
+        if tier == T0:
+            self.counts[rule_id] += 1
+        else:
+            self.dropped += 1
+            self.dropped_tier = max(self.dropped_tier, tier)
+
+    def more(self) -> Alert | None:
+        """One alert standing for everything past the cap."""
+        if not self.dropped:
+            return None
+        return Alert(layer="shield", rule_id="alerts-truncated", tier=self.dropped_tier,
+                     technique=f"+{self.dropped} more alerts", action=FLAGGED,
+                     tool=self.tool)  # fmt: skip
 
     def add(self, a: Alert) -> None:
         key = (a.rule_id, a.url, a.snippet, a.decoded)
@@ -130,7 +148,10 @@ def record(layer: str, rule_id: str, tier: int, technique: str, action: str, *,
     rec = current.get()
     if rec is None:
         return
-    rec.add(Alert(layer=layer, rule_id=rule_id, tier=tier, technique=technique, action=action,
+    if len(rec.alerts) >= MAX_ALERTS:  # a hostile page can't make us sanitize 20000 events
+        rec.overflow(rule_id, tier)
+        return
+    rec.add(Alert(layer=layer, rule_id=rule_id, tier=tier, technique=sanitize(technique, 80), action=action,
                   url=scrub_url(url or current_url.get()), location=sanitize(location, 160),
                   snippet=sanitize(snippet), decoded=sanitize(decoded),
                   bytes_removed=bytes_removed, channel=channel))  # fmt: skip

@@ -14,16 +14,19 @@ from agent_wire.shield import detect
 from agent_wire.shield import events as ev
 
 # Layer 1: physical steganography removal.
+_FAR = r"(?:9\d\d|\d{4,})(?:\.\d+)?px"  # an offset of 900px or more, off to the left or up
 _HIDDEN_STYLE = re.compile(
     r"display\s*:\s*none"
     r"|visibility\s*:\s*hidden"
     r"|opacity\s*:\s*0(?:\.0+)?(?![.\d])"
+    r"|opacity\s*:\s*0?\.0[0-4]\d*"  # under 5%: invisible in practice
     r"|font-size\s*:\s*0(?![.\d])"
+    r"|font-size\s*:\s*(?:0*[01](?:\.\d+)?|0*\.\d+)px"  # under 2px
     r"|(?<![-\w])height\s*:\s*0(?![.\d])"
     r"|(?<![-\w])width\s*:\s*0(?![.\d])"
-    r"|(?<![-\w])(?:left|top|right|margin-left|margin-top)\s*:\s*-\d{4,}px"
-    r"|text-indent\s*:\s*-\d{4,}px"
-    r"|(?<![-\w])clip\s*:\s*rect\(\s*0"
+    rf"|(?<![-\w])(?:left|top|right|margin-left|margin-top)\s*:\s*-{_FAR}"
+    rf"|text-indent\s*:\s*-{_FAR}"
+    r"|(?<![-\w])clip\s*:\s*rect\(\s*(?:0|1px)"
     r"|clip-path\s*:\s*(?:inset\(\s*(?:50|100)%|circle\(\s*0)"
     r"|transform\s*:\s*scale\(\s*0(?:\.0+)?\s*\)",
     re.IGNORECASE,
@@ -55,12 +58,32 @@ _SHOWN_AGAIN = re.compile(
 # framework stylesheet costs ~40x more. They run on the lowercased sheet; a non-ASCII sheet (where
 # lowercasing can shift offsets) uses the case-insensitive copies instead.
 _SHEET_PATTERNS = (r"display\s*:\s*none", r"visibility\s*:\s*hidden",
-                   r"clip(?:-path)?\s*:\s*(?:rect\(\s*0|inset\(\s*(?:50|100)%)", r"-\d{4,}px")  # fmt: skip
+                   r"clip(?:-path)?\s*:\s*(?:rect\(\s*0|inset\(\s*(?:50|100)%)", r"-(?:9\d\d|\d{4,})(?:\.\d+)?px")  # fmt: skip
 _SHEET_FAST = tuple(re.compile(p) for p in _SHEET_PATTERNS)
 _SHEET_CI = tuple(re.compile(p, re.IGNORECASE) for p in _SHEET_PATTERNS)
 _OFFSCREEN_PROPS = frozenset({"left", "top", "right", "margin-left", "margin-top", "text-indent"})
 _SIMPLE_SEL = re.compile(r"^\s*(?:[a-z][\w-]*)?([.#])([\w-]+)\s*$", re.IGNORECASE)
 _CSS_COMMENT = re.compile(r"/\*.*?(?:\*/|$)", re.DOTALL)  # an unclosed comment runs to the end
+# `@media screen`, `all` and `print` match every page a reader sees, so their rules are unconditional.
+_MEDIA_ALWAYS = re.compile(
+    r"@media\s+(?:only\s+)?(?:screen|all|print)\s*(?:,\s*(?:only\s+)?(?:screen|all|print)\s*)*\{",
+    re.IGNORECASE,
+)
+_BRACE = re.compile(r"[{}]")
+
+
+def _unwrap_media(css: str) -> str:
+    for _ in range(50):  # bounded: a hostile sheet can't make this quadratic
+        if not (m := _MEDIA_ALWAYS.search(css)):
+            break
+        depth, end = 1, len(css)
+        for b in _BRACE.finditer(css, m.end()):
+            depth += 1 if b[0] == "{" else -1
+            if not depth:
+                end = b.start()
+                break
+        css = f"{css[: m.start()]} {css[m.end() : end]} {css[end + 1 :]}"
+    return css
 
 
 def _sheet_hits(css: str) -> list[int]:
@@ -114,13 +137,20 @@ class _Sheet:
 
 
 _NO_SHEET = _Sheet()
+_STYLE_TAG = re.compile(r"<style", re.IGNORECASE)
 
 _TAG_CHARS = re.compile("[\U000e0000-\U000e007f]+")
-_ZERO_WIDTH = re.compile("[\u200b-\u200d\ufeff\u202a-\u202e\u2066-\u2069]")
-_BMP_INVISIBLE = tuple(chr(cp) for cp in (0x200B, 0x200C, 0x200D, 0xFEFF, *range(0x202A, 0x202F),
+_ASTRAL_INVISIBLE = re.compile("[\U000e0000-\U000e007f\U000e0100-\U000e01ef]")  # tags, VS17-256
+_ZERO_WIDTH = re.compile(
+    "[\u00ad\u180e\u200b-\u200d\u2060\ufeff\ufe00-\ufe0f\u202a-\u202e\u2066-\u2069]"
+)
+_BMP_INVISIBLE = tuple(chr(cp) for cp in (0xAD, 0x180E, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF,
+                                          *range(0xFE00, 0xFE10), *range(0x202A, 0x202F),
                                           *range(0x2066, 0x206A)))  # fmt: skip
 _INVISIBLE = {cp: None for cp in range(0xE0000, 0xE0080)}  # Unicode tag characters
-_INVISIBLE.update(dict.fromkeys((0x200B, 0x200C, 0x200D, 0xFEFF)))  # zero-width
+_INVISIBLE.update(dict.fromkeys((0xAD, 0x180E, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF)))
+_INVISIBLE.update({cp: None for cp in range(0xFE00, 0xFE10)})  # variation selectors
+_INVISIBLE.update({cp: None for cp in range(0xE0100, 0xE01F0)})  # VS supplement
 _INVISIBLE.update({cp: None for cp in range(0x202A, 0x202F)})  # bidi overrides
 _INVISIBLE.update({cp: None for cp in range(0x2066, 0x206A)})  # bidi isolates
 _UCS4_FLOOR = 4  # bytes per char: only strings stored as UCS-4 can hold tag characters
@@ -132,7 +162,10 @@ def _has_invisible(text: str) -> bool:
     if any(c in text for c in _BMP_INVISIBLE):  # C-speed substring scans
         return True
     # CPython stores a string with any astral character as UCS-4; getsizeof tells us in O(1).
-    return sys.getsizeof(text) >= _UCS4_FLOOR * len(text) and _TAG_CHARS.search(text) is not None
+    return (
+        sys.getsizeof(text) >= _UCS4_FLOOR * len(text)
+        and _ASTRAL_INVISIBLE.search(text) is not None
+    )
 
 
 def strip_invisible_unicode(text: str) -> str:
@@ -160,6 +193,8 @@ def _page_sheet(tree) -> _Sheet:
     css = "\n}\n".join(style.text() or "" for style in tree.css("style"))  # "}" resets a bad sheet
     if "/*" in css:  # a comment before a selector, or holding a brace, would hide the rule
         css = _CSS_COMMENT.sub(" ", css)
+    if "@media" in css.lower():
+        css = _unwrap_media(css)
     return _Sheet(css, hits) if (hits := _sheet_hits(css)) else _NO_SHEET
 
 
@@ -167,8 +202,16 @@ def _page_sheet(tree) -> _Sheet:
 _HIDDEN_CLASS_HINTS = ("hid", "only", "d-none", "invisible")
 
 
+_MAX_HEIGHT_0 = re.compile(r"max-height\s*:\s*0(?![.\d])", re.IGNORECASE)
+_OVERFLOW_HIDDEN = re.compile(r"overflow(?:-[xy])?\s*:\s*hidden", re.IGNORECASE)
+
+
 def _hidden_decl(style: str) -> str | None:
+    if "/*" in style:  # `display/**/:none` is still display:none to a browser
+        style = _CSS_COMMENT.sub(" ", style)
     if m := _HIDDEN_STYLE.search(style):
+        return m[0]
+    if (m := _MAX_HEIGHT_0.search(style)) and _OVERFLOW_HIDDEN.search(style):
         return m[0]
     if (m := _TRANSPARENT.search(style)) and not _BG_CLIP.search(style):
         return m[0]
@@ -189,9 +232,9 @@ def _hidden_reason(node, sheet: _Sheet) -> str | None:
         names = cls.split()
         hit = next((c for c in names if c in _HIDDEN_CLASSES or sheet.hides(c)), None)
         if hit and not any(_SHOWN_AGAIN.match(c) for c in names):
-            return f"class .{hit}"
+            return f"class .{hit}" if hit in _HIDDEN_CLASSES else "stylesheet class"
     if sheet.ids and (attrs.get("id") or "") in sheet.ids:
-        return f"stylesheet #{attrs['id']}"
+        return "stylesheet id"  # never the page's own id text: this lands in the trusted header
     if (attrs.get("aria-hidden") or "").lower() == "true":
         parent = node.parent
         while parent is not None:
@@ -240,7 +283,7 @@ def clean_html(html: str) -> str:
     """Return HTML with every node a human reader can't see removed."""
     reporting = ev.active()
     tree = LexborHTMLParser(strip_invisible_unicode(html))
-    sheet = _page_sheet(tree) if "<style" in html or "<STYLE" in html else _NO_SHEET
+    sheet = _page_sheet(tree) if _STYLE_TAG.search(html) else _NO_SHEET
     doomed, doomed_ids = [], set()
     for node in tree.root.traverse(include_text=False):
         # Pre-order traversal: skip descendants of already-doomed nodes (decompose frees them).
@@ -267,7 +310,7 @@ def clean_html(html: str) -> str:
 # Layer 2: escape fake LLM control delimiters in untrusted comments (outside code fences).
 _DELIMITER = re.compile(
     r"</?\s*(?:system|tool_result|tool_use|tool_call|function_calls|function_results"
-    r"|assistant|user|human)\b[^>]*>"
+    r"|assistant|user|human)\b[^>]{0,200}>"
     r"|<\|[\w-]+\|>"
     r"|\[/?INST\]",
     re.IGNORECASE,

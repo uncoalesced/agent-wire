@@ -56,10 +56,10 @@ class Shield:
         """Persist and deliver; returns the raised (T1+) alerts with their ledger ids."""
         if not rec.alerts and not rec.counts:
             return []
-        self.ledger.bump(dict(rec.counts))
+        alerts = [*rec.alerts, *filter(None, [rec.more()])]
+        ids = self.ledger.add_many(alerts, dict(rec.counts))
         raised = []
-        for a in rec.alerts:
-            alert_id = self.ledger.add(a)
+        for a, alert_id in zip(alerts, ids, strict=True):
             if a.tier >= T1:
                 raised.append((a, alert_id))
                 self.notifier.notify(a, alert_id)

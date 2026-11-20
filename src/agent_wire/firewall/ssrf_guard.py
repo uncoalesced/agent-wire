@@ -58,8 +58,18 @@ def _legacy_ipv4(host: str) -> ipaddress.IPv4Address | None:
     return ipaddress.IPv4Address(value)
 
 
+def decode_host(host: str) -> str:
+    """Percent-decode a host until stable: libcurl decodes it, so the guard must see that name."""
+    for _ in range(8):
+        decoded = unquote(host)
+        if decoded == host:
+            break
+        host = decoded
+    return host
+
+
 def literal_ip(host: str) -> IP | None:
-    h = unquote(host).split("%", 1)[0].rstrip(".")  # drop an IPv6 zone id and a trailing dot
+    h = decode_host(host).split("%", 1)[0].rstrip(".")  # drop an IPv6 zone id and a trailing dot
     try:
         return ipaddress.ip_address(h)
     except ValueError:
@@ -90,11 +100,14 @@ def check_url(url: str) -> None:
         raise WireBlockedError(f"{url}: blocked: malformed URL")
     if private_allowed():
         return
-    name = host.rstrip(".")
+    name = decode_host(host).lower().rstrip(".")
     if name == "localhost" or name.endswith(".localhost"):
         raise _private(url)
-    if (ip := literal_ip(host)) is not None and is_blocked_ip(ip):
+    ip = literal_ip(host)
+    if ip is not None and is_blocked_ip(ip):
         raise _private(url, ip)
+    if ip is None and "%" in host:  # an encoded name is never a real host
+        raise WireBlockedError(f"{url}: blocked: malformed URL")
 
 
 async def _resolve(host: str, port: int) -> list[str]:
@@ -102,27 +115,35 @@ async def _resolve(host: str, port: int) -> list[str]:
     return [info[4][0] for info in infos]
 
 
-async def check_resolved(url: str) -> None:
+async def check_resolved(url: str) -> str | None:
     """`check_url`, then refuse if any address the host resolves to is private.
 
-    An unresolvable host passes: the request itself fails. curl resolves again on connect, so a
-    DNS-rebinding server can still race this check; it stops plain names pointing inward.
+    Returns a curl `resolve` entry ("host:port:ip,...") pinning the connection to the addresses
+    just validated, so a DNS-rebinding server cannot answer differently when curl connects. None
+    when there is nothing to pin (literal IP, private access allowed, or an unresolvable name:
+    the request itself fails).
     """
     check_url(url)
     if private_allowed():
-        return
+        return None
     parts = urlsplit(url)
-    if literal_ip(parts.hostname) is not None:
-        return
+    host = parts.hostname
+    if literal_ip(host) is not None:
+        return None
     try:
         port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
     except ValueError:
         raise WireBlockedError(f"{url}: blocked: malformed URL") from None
     try:
-        addresses = await _resolve(parts.hostname, port)
+        addresses = await _resolve(host, port)
     except (OSError, UnicodeError):
-        return
+        return None
+    ips = []
     for address in addresses:
         ip = ipaddress.ip_address(address.split("%", 1)[0])
         if is_blocked_ip(ip):
             raise _private(url, ip)
+        ips.append(f"[{ip}]" if ip.version == 6 else str(ip))
+    if not ips or not host.isascii():
+        return None
+    return f"{host}:{port}:{','.join(dict.fromkeys(ips))}"

@@ -1,5 +1,7 @@
 """4-stage anti-bot waterfall with per-domain memory of the stage that worked."""
 
+import asyncio
+import os
 from collections.abc import Sequence
 from urllib.parse import urlsplit
 
@@ -7,12 +9,20 @@ from curl_cffi.requests.exceptions import RequestException
 
 from agent_wire.engine.challenge import is_auth_wall, is_blocked
 from agent_wire.engine.errors import WireFetchError
-from agent_wire.engine.http_pool import Fetched, HttpPool, registrable_domain
+from agent_wire.engine.http_pool import Fetched, HttpPool, registrable_domain, strip_auth
 from agent_wire.firewall.outbound_privacy import should_attach_cookies
 from agent_wire.firewall.ssrf_guard import check_url
 
 IMPERSONATE_ROTATION = ("chrome", "safari", "chrome_android")
 STAGES = (1, 2, 3, 4)
+DEADLINE_ENV, BROWSER_SLOTS_ENV = "WIRE_FETCH_TIMEOUT_S", "WIRE_BROWSER_SLOTS"
+
+
+def _env_num(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name) or default)
+    except ValueError:
+        return default
 
 
 class Waterfall:
@@ -22,8 +32,18 @@ class Waterfall:
         self.vault = vault
         self.limiter = limiter
         self.browser = browser
+        self._browser_slots = asyncio.Semaphore(max(1, int(_env_num(BROWSER_SLOTS_ENV, 2))))
 
-    async def fetch(
+    async def fetch(self, url: str, **kw) -> Fetched:
+        """One overall deadline for every stage together (WIRE_FETCH_TIMEOUT_S, default 45 s)."""
+        limit = _env_num(DEADLINE_ENV, 45)
+        try:
+            async with asyncio.timeout(limit):
+                return await self._fetch(url, **kw)
+        except TimeoutError:
+            raise WireFetchError(f"{url}: gave up after {limit:g}s ({DEADLINE_ENV})") from None
+
+    async def _fetch(
         self,
         url: str,
         *,
@@ -120,14 +140,16 @@ class Waterfall:
         if stage == 3:  # never send the user's cookies to mirrors or archives
             for mirror in mirrors:
                 try:
-                    f = await self.pool.get(mirror, headers=req["headers"], impersonate="chrome")
+                    f = await self.pool.get(mirror, headers=strip_auth(req["headers"]),
+                                            impersonate="chrome")  # fmt: skip
                 except RequestException:
                     continue
                 if f.ok and not is_blocked(f):
                     return f, None, None
             return (await self._wayback(url) if archive else None), None, None
         if stage == 4 and browser and self.browser and self.browser.available():
-            return await self.browser.render(url)
+            async with self._browser_slots:
+                return await self.browser.render(url)
         return None, None, None
 
     async def _get(self, url, cookies, impersonate, req) -> Fetched:
