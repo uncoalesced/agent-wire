@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from datetime import UTC, datetime
 
 import orjson
@@ -13,6 +14,7 @@ from agent_wire.channels.tier1_global import (
     rss,
     search,
     stackoverflow,
+    web,
     wikipedia,
     x_twitter,
     youtube,
@@ -180,6 +182,34 @@ def test_web_reader_rejects_binary(make_ctx, run):
     ctx = make_ctx({"example.com": fetched(b"%PDF-1.7", ctype="application/pdf")})
     with pytest.raises(WireUnsupported):
         run(ctx.channel("web").read("https://example.com/a.pdf"))
+
+
+@pytest.mark.parametrize("ctype", ["application/x-gzip", "application/x-tar", "application/x-zip"])
+def test_web_reader_rejects_x_archives_instead_of_decoding_them(make_ctx, run, ctype):
+    ctx = make_ctx({"example.com": fetched(b"\x1f\x8b\x08\x00" * 500, ctype=ctype)})
+    with pytest.raises(WireUnsupported):
+        run(ctx.channel("web").read("https://example.com/a.tar.gz"))
+
+
+def test_web_reader_rejects_nul_bytes_in_text_and_keeps_x_yaml(make_ctx, run):
+    ctx = make_ctx({"nul.test": fetched(b"abc\x00def", ctype="text/plain"),
+                    "yaml.test": fetched("a: 1", ctype="application/x-yaml")})  # fmt: skip
+    with pytest.raises(WireUnsupported):
+        run(ctx.channel("web").read("https://nul.test/a"))
+    assert run(ctx.channel("web").read("https://yaml.test/a.yml")).body == "a: 1"
+
+
+def test_web_reader_extracts_off_the_event_loop(make_ctx, run, monkeypatch):
+    seen = []
+
+    def spy(html):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return "body", {"title": "t", "author": None, "date": None, "site": None}
+
+    monkeypatch.setattr(web, "extract_article", spy)
+    ctx = make_ctx({"example.com": fetched(ARTICLE)})
+    run(ctx.channel("web").read("https://example.com/review"))
+    assert seen == [False]
 
 
 RSS2 = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</title>
