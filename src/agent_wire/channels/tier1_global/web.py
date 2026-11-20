@@ -1,5 +1,6 @@
 """Generic web reader: waterfall fetch -> inbound shield -> trafilatura Markdown -> section slice."""
 
+import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
@@ -11,7 +12,9 @@ from agent_wire.compression.anchor_slicer import parse_line_anchor, slice_lines,
 from agent_wire.firewall.inbound_shield import clean_html
 from agent_wire.models import WireDocument
 
-_TEXT_TYPES = ("text/plain", "text/markdown", "text/x-", "application/json", "application/x-")
+_TEXT_TYPES = ("text/plain", "text/markdown", "text/x-", "application/json", "application/x-yaml",
+               "application/x-sh", "application/x-javascript", "application/x-ndjson",
+               "application/x-www-form-urlencoded")  # fmt: skip
 _FEED_TYPES = ("application/rss+xml", "application/atom+xml", "application/feed+json")
 
 
@@ -74,6 +77,8 @@ class WebChannel(Channel):
             return self.ctx.channel("rss").document(f, url)
         anchor = section or urlsplit(url).fragment or None
         if ctype.startswith(_TEXT_TYPES) or (not ctype and not f.content.lstrip().startswith(b"<")):
+            if b"\0" in f.content[:8192]:  # binary mislabelled as text
+                raise WireUnsupported(f"{url} is binary data, not a readable page")
             body = f.text
             if lines := parse_line_anchor(url):
                 body = slice_lines(body, *lines)
@@ -83,7 +88,7 @@ class WebChannel(Channel):
         if "html" not in ctype and ctype:
             raise WireUnsupported(f"{url} is {ctype}, not a readable page")
 
-        body, info = extract_article(f.text)
+        body, info = await asyncio.to_thread(extract_article, f.text)
         if anchor:
             body = slice_section(body, anchor) or body
         meta = {"site": info["site"]} if info["site"] else {}

@@ -89,8 +89,11 @@ class PolymarketChannel(Channel):
         if len(parts) < 2 or parts[0] not in ("event", "market"):
             raise WireUnsupported("polymarket: only /event/<slug> URLs and the front page")
         data, f = await self.fetch_json(f"{GAMMA}/events?slug={quote(parts[1])}")
+        if not data:  # a /market/<slug> inside a multi-market event is not an event slug
+            data, f = await self.fetch_json(f"{GAMMA}/markets?slug={quote(parts[1])}")
+            data = [{**m, "title": m.get("question"), "markets": [m]} for m in data or []]
         if not data:
-            raise WireUnsupported(f"polymarket: no event {parts[1]!r}")
+            raise WireUnsupported(f"polymarket: no event or market {parts[1]!r}")
         e = data[0]
         lines = [f"- {line}" for line in event_summary(e, 20)]
         body = "\n".join([e.get("description") or "", "", "Markets:", *lines]).strip()

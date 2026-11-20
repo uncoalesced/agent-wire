@@ -1,5 +1,6 @@
 """Bluesky (public AT Protocol AppView) and Mastodon (ActivityPub REST), zero auth."""
 
+import asyncio
 from urllib.parse import quote, urlsplit
 
 from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, listing, ts
@@ -112,7 +113,9 @@ class FediverseChannel(Channel):
         comments = []
         if include_comments:
             ctx, _ = await self.fetch_json(f"{base}/api/v1/statuses/{status_id}/context")
-            comments = parse_mastodon_context(ctx.get("descendants", []), status_id, op)
+            comments = await asyncio.to_thread(
+                parse_mastodon_context, ctx.get("descendants", []), status_id, op
+            )
         return self.doc(
             f, url, title=f"@{op} on {urlsplit(base).hostname}", author_handle=op,
             timestamp=ts(status.get("created_at")), score=status.get("favourites_count"),

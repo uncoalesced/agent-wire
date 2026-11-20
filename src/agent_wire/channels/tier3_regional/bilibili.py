@@ -61,10 +61,10 @@ class BilibiliChannel(Channel):
         # One shared anonymous chrome session; the API answers 412 until the homepage has set the
         # buvid3/b_nut visitor cookies, so visit it once first.
         if not self._primed:
-            await self.ctx.pool.get(
+            home = await self.ctx.pool.get(
                 "https://www.bilibili.com/", impersonate="chrome", headers=HEADERS
             )
-            self._primed = True
+            self._primed = home.ok  # a failed visit is retried on the next call
         f = await self.ctx.pool.get(url, impersonate="chrome", headers=HEADERS)
         if not f.ok:
             raise WireFetchError(f"{url}: HTTP {f.status}")
@@ -142,7 +142,6 @@ class BilibiliChannel(Channel):
             return ""
 
     async def search(self, query, *, limit=5, sort="relevance"):
-        await self._get("https://www.bilibili.com/")  # sets buvid3, required by search
         order = {"new": "pubdate", "top": "click"}.get(sort, "totalrank")
         data, _ = await self._api("/x/web-interface/wbi/search/type",
                                   {"search_type": "video", "keyword": query, "order": order}, sign=True)  # fmt: skip

@@ -1,8 +1,10 @@
+import asyncio
+import threading
 from datetime import UTC, datetime
 
 import orjson
 import pytest
-from conftest import FakeVault, fetched
+from conftest import FakePool, FakeVault, fetched
 
 from agent_wire.channels.base import WireUnsupported, compact_count, html_to_markdown, ts
 from agent_wire.channels.tier1_global import (
@@ -12,6 +14,7 @@ from agent_wire.channels.tier1_global import (
     rss,
     search,
     stackoverflow,
+    web,
     wikipedia,
     x_twitter,
     youtube,
@@ -87,6 +90,8 @@ def test_ts_and_counts():
     assert ts(1700000000000) == ts(1700000000)
     assert ts("2024-01-02T03:04:05Z").year == 2024
     assert ts("garbage") is None
+    assert ts("Wed, 10 Oct 2018 20:19:24 +0000") == datetime(2018, 10, 10, 20, 19, 24, tzinfo=UTC)
+    assert ts("Wed Oct 10 20:19:24 +0000 2018").year == 2018  # Twitter's format
     assert compact_count("1.2K") == 1200 and compact_count("3,400 likes") == 3400
     assert compact_count("2M") == 2_000_000 and compact_count(None) == 0
 
@@ -181,6 +186,34 @@ def test_web_reader_rejects_binary(make_ctx, run):
         run(ctx.channel("web").read("https://example.com/a.pdf"))
 
 
+@pytest.mark.parametrize("ctype", ["application/x-gzip", "application/x-tar", "application/x-zip"])
+def test_web_reader_rejects_x_archives_instead_of_decoding_them(make_ctx, run, ctype):
+    ctx = make_ctx({"example.com": fetched(b"\x1f\x8b\x08\x00" * 500, ctype=ctype)})
+    with pytest.raises(WireUnsupported):
+        run(ctx.channel("web").read("https://example.com/a.tar.gz"))
+
+
+def test_web_reader_rejects_nul_bytes_in_text_and_keeps_x_yaml(make_ctx, run):
+    ctx = make_ctx({"nul.test": fetched(b"abc\x00def", ctype="text/plain"),
+                    "yaml.test": fetched("a: 1", ctype="application/x-yaml")})  # fmt: skip
+    with pytest.raises(WireUnsupported):
+        run(ctx.channel("web").read("https://nul.test/a"))
+    assert run(ctx.channel("web").read("https://yaml.test/a.yml")).body == "a: 1"
+
+
+def test_web_reader_extracts_off_the_event_loop(make_ctx, run, monkeypatch):
+    seen = []
+
+    def spy(html):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return "body", {"title": "t", "author": None, "date": None, "site": None}
+
+    monkeypatch.setattr(web, "extract_article", spy)
+    ctx = make_ctx({"example.com": fetched(ARTICLE)})
+    run(ctx.channel("web").read("https://example.com/review"))
+    assert seen == [False]
+
+
 RSS2 = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</title>
 <item><title>Post A</title><link>https://b.example/a</link><pubDate>Tue, 10 Jun 2025 04:00:00 GMT</pubDate>
 <description>&lt;p&gt;Hello &lt;b&gt;world&lt;/b&gt;&lt;/p&gt;</description></item>
@@ -199,6 +232,26 @@ def test_rss_atom_jsonfeed():
     jf = orjson.dumps({"title": "JF", "items": [{"id": "1", "url": "https://j/1", "title": "T",
                                                   "content_text": "body"}]})  # fmt: skip
     assert rss.parse_feed(jf)[1][0]["summary"] == "body"
+
+
+def test_rss_summary_prefers_description_over_empty_media_content():
+    xml = b"""<rss xmlns:media="http://search.yahoo.com/mrss/" version="2.0"><channel><title>B</title>
+<item><title>A</title><link>https://b/a</link><media:content url="https://b/x.jpg"/>
+<description>real summary</description></item>
+<item><title>No link</title></item></channel></rss>"""
+    _, items = rss.parse_feed(xml)
+    assert items[0]["summary"] == "real summary"
+    body = rss.render_items(items)
+    assert "[A](https://b/a)" in body and "2. No link" in body and "()" not in body
+
+
+def test_json_feed_converts_only_the_capped_items(monkeypatch):
+    calls = []
+    monkeypatch.setattr(rss, "html_text", lambda h: calls.append(h) or h)
+    items = [{"id": str(i), "url": f"https://j/{i}", "title": "T", "content_html": "<p>x</p>"}
+             for i in range(200)]  # fmt: skip
+    _, out = rss.parse_feed(orjson.dumps({"title": "JF", "items": items}))
+    assert len(out) == rss.MAX_ITEMS == len(calls)
 
 
 def test_web_reader_hands_feeds_to_rss(make_ctx, run):
@@ -252,6 +305,42 @@ def test_github_repo_overview(make_ctx, run, monkeypatch):
     assert "`src/` `README.md`" in doc.body and "pip install b" in doc.body
     doc = run(ctx.channel("github").read("https://github.com/a/b#install"))
     assert "pip install b" in doc.body and "run" not in doc.body.split("## README")[1]
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://github.com/pricing", "https://github.com/features/copilot",
+     "https://github.com/sponsors/x", "https://github.com/explore", "https://github.com/apps/x",
+     "https://github.com/pulls", "https://github.com/enterprise"],
+)  # fmt: skip
+def test_github_site_pages_skip_api(make_ctx, run, monkeypatch, url):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"github.com": "<html><body><p>site page</p></body></html>"})
+    doc = run(ctx.channel("github").read(url))
+    assert doc.channel == "web"
+    assert not any("api.github.com" in c[0] for c in ctx.waterfall.calls)
+
+
+def test_github_unknown_user_falls_back_to_web(make_ctx, run, monkeypatch):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"https://github.com/zzz": "<html><body><p>hello</p></body></html>"})
+    doc = run(ctx.channel("github").read("https://github.com/zzz"))  # api route missing -> error
+    assert doc.channel == "web"
+
+
+def test_github_short_raw_url_does_not_crash(make_ctx, run, monkeypatch):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"raw.githubusercontent.com/x": "<html><body>raw</body></html>"})
+    doc = run(ctx.channel("github").read("https://raw.githubusercontent.com/x"))
+    assert doc.channel == "web"
+
+
+def test_github_empty_repo_without_contents(make_ctx, run, monkeypatch):
+    monkeypatch.setattr(github, "github_token", lambda: None)
+    ctx = make_ctx({"/repos/a/b/readme": fetched("# B", ctype="text/plain"),
+                    "/repos/a/b": {"full_name": "a/b", "description": "empty"}})  # fmt: skip
+    doc = run(ctx.channel("github").read("https://github.com/a/b"))  # no /contents route -> error
+    assert doc.title == "a/b" and "## Files" not in doc.body
 
 
 def test_github_blob_line_range(make_ctx, run, monkeypatch):
@@ -480,6 +569,50 @@ def test_x_search_and_me_need_session(make_ctx, run):
         run(ctx.channel("x").me("likes"))
 
 
+class _XPool(FakePool):
+    """X web API whose first guest token is already expired (403)."""
+
+    activations = 0
+
+    async def get(self, url, **kw):
+        if "guest/activate" in url:
+            self.activations += 1
+            return fetched({"guest_token": f"g{self.activations}"})
+        if "/graphql/" in url:
+            if kw["headers"]["x-guest-token"] == "g1":
+                return fetched(b"{}", status=403)
+            return fetched({"data": {"ok": True}})
+        return fetched(b"nope", status=404)
+
+
+def _x_ctx(make_ctx):
+    ctx = make_ctx({
+        "abs.twimg.com": 'queryId:"q1",operationName:"TweetDetail"',
+        "https://x.com/": '<script src="https://abs.twimg.com/responsive-web/client-web/main.ab.js">',
+    })  # fmt: skip
+    ctx.pool = _XPool()
+    return ctx
+
+
+def test_x_graphql_refreshes_expired_guest_token_once(make_ctx, run):
+    ctx = _x_ctx(make_ctx)
+    data = run(ctx.channel("x").graphql("TweetDetail", {}))
+    assert data == {"data": {"ok": True}} and ctx.pool.activations == 2
+
+
+def test_x_graphql_init_is_shared_between_concurrent_calls(make_ctx, run):
+    ctx = _x_ctx(make_ctx)
+    ctx.pool.activations = 1  # next token is g2, which works
+
+    async def go():
+        ch = ctx.channel("x")
+        return await asyncio.gather(*(ch.graphql("TweetDetail", {}) for _ in range(5)))
+
+    run(go())
+    assert ctx.pool.activations == 2  # one fresh token for all five
+    assert sum(u == "https://x.com/" for u, _ in ctx.waterfall.calls) == 1
+
+
 def test_x_syndication_timeline_parse():
     nd = {"props": {"pageProps": {"timeline": {"entries": [{"content": {"tweet": {
         "id_str": "5", "full_text": "hello", "favorite_count": 2, "user": {"screen_name": "a"},
@@ -590,6 +723,11 @@ def test_stackexchange_site_mapping():
     assert stackoverflow.site_for("unix.stackexchange.com") == "unix"
     assert stackoverflow.site_for("superuser.com") == "superuser"
     assert stackoverflow.site_for("www.mathoverflow.net") == "mathoverflow.net"
+
+
+@pytest.mark.parametrize("host", ["es", "pt", "ru", "ja", "meta"])
+def test_stackoverflow_localised_sites(host):
+    assert stackoverflow.site_for(f"{host}.stackoverflow.com") == f"{host}.stackoverflow"
 
 
 # ---- wikipedia ----------------------------------------------------------------------------------

@@ -107,7 +107,7 @@ class ArxivChannel(Channel):
 
     async def _citations(self, pid: str) -> dict:
         try:
-            data, _ = await self.fetch_json(S2.format(pid.split("v")[0]))
+            data, _ = await self.fetch_json(S2.format(re.sub(r"v\d+$", "", pid)))
         except (WireFetchError, RequestException, ValueError):
             return {}
         tldr = (data.get("tldr") or {}).get("text")
@@ -118,14 +118,15 @@ class ArxivChannel(Channel):
         pid = arxiv_id(url)
         if not pid:
             raise WireUnsupported("arxiv: expected an /abs/, /pdf/ or /html/ paper URL")
-        abs_data, abs_f = await self.fetch_json_atom(pid)
-        meta = await self._citations(pid)
-        try:  # full text: arXiv's own HTML render, ar5iv as mirror
-            f = await self.fetch(f"https://arxiv.org/html/{pid}", archive=False, browser=False,
-                                 mirrors=[f"https://ar5iv.labs.arxiv.org/html/{pid}"])  # fmt: skip
-            body, _ = extract_article(f.text)
-        except WireFetchError:
-            f, body = abs_f, ""
+        (abs_data, abs_f), meta, html_f = await asyncio.gather(
+            self._abs(pid), self._citations(pid), self._html(pid)
+        )
+        if html_f is None and abs_f is None:
+            raise WireFetchError(f"arxiv: could not read {pid}")
+        f = html_f or abs_f
+        body = ""
+        if html_f is not None:
+            body, _ = await asyncio.to_thread(extract_article, html_f.text)
         if not body.strip() and abs_data:
             body = f"## Abstract\n{abs_data['summary']}\n\n_Full text not available as HTML; abstract only._"
         if section:
@@ -139,6 +140,20 @@ class ArxivChannel(Channel):
             metadata={"arxiv": pid, "categories": ", ".join(abs_data.get("categories", [])[:4]) if abs_data else None,
                       "citations": meta.get("citations"), "venue": meta.get("venue")},
         )  # fmt: skip
+
+    async def _abs(self, pid: str):
+        """export.arxiv.org often 429s or serves HTML; the full text can still be read."""
+        try:
+            return await self.fetch_json_atom(pid)
+        except (WireFetchError, RequestException, ET.ParseError, ValueError):
+            return {}, None
+
+    async def _html(self, pid: str):
+        try:  # full text: arXiv's own HTML render, ar5iv as mirror
+            return await self.fetch(f"https://arxiv.org/html/{pid}", archive=False, browser=False,
+                                    mirrors=[f"https://ar5iv.labs.arxiv.org/html/{pid}"])  # fmt: skip
+        except WireFetchError:
+            return None
 
     async def fetch_json_atom(self, pid: str):
         f = await self.fetch(f"{API}?id_list={pid}", archive=False, browser=False)

@@ -88,6 +88,30 @@ def test_arxiv_abstract_fallback(run):
     assert "## Abstract\nThe dominant sequence transduction models..." in doc.body
 
 
+_PAPER = (
+    "<html><body><article><h1>Attention</h1><h2>Introduction</h2><p>"
+    + "Transformers use attention. " * 20
+    + "</p></article></body></html>"
+)
+
+
+@pytest.mark.parametrize("export", [fetched(b"", status=429), fetched("<html>blocked</html>")])
+def test_arxiv_read_survives_broken_export_api(run, export):
+    ctx = ctx_with({"export.arxiv.org/api/query": export,
+                    "arxiv.org/html/1706.03762": fetched(_PAPER)})  # fmt: skip
+    doc = run(ctx.channel("arxiv").read("https://arxiv.org/abs/1706.03762"))
+    assert "Transformers use attention." in doc.body and doc.title == "1706.03762"
+
+
+def test_arxiv_semantic_scholar_id_keeps_v_in_old_style_ids(run):
+    ctx = ctx_with({"export.arxiv.org": fetched(b"", status=429),
+                    "semanticscholar.org": {"citationCount": 7},
+                    "arxiv.org/html/solv-int/9901001v2": fetched(_PAPER)})  # fmt: skip
+    run(ctx.channel("arxiv").read("https://arxiv.org/abs/solv-int/9901001v2"))
+    s2 = [c[0] for c in ctx.waterfall.calls if "semanticscholar" in c[0]]
+    assert s2 == [arxiv_papers.S2.format("solv-int/9901001")]
+
+
 # ---- hubs ---------------------------------------------------------------------------------------
 
 
@@ -151,6 +175,54 @@ def test_watchlist_survives_one_bad_symbol(run):
     ctx = ctx_with({}, pool)
     doc = run(ctx.channel("markets").feed("AAPL, NOPE"))
     assert "| AAPL |" in doc.body and "Unavailable: NOPE: WireFetchError" in doc.body
+
+
+def test_yahoo_daily_change_uses_a_one_day_range(run):
+    five_day = {"chart": {"result": [{"meta": {**CHART["chart"]["result"][0]["meta"],
+                                               "chartPreviousClose": 50.0}}]}}  # fmt: skip
+    ctx = ctx_with({}, {"range=5d": five_day, "range=1d": CHART, "getcrumb": fetched("")})
+    row, _ = run(ctx.channel("markets").quote("AAPL"))
+    assert row["change_pct"] == pytest.approx(10.0)  # not the 5-day move (+120%)
+
+
+class _CrumbPool(FakePool):
+    """Yahoo whose first crumb is expired (401); counts handshakes."""
+
+    crumbs = 0
+
+    async def get(self, url, **kw):
+        if "getcrumb" in url:
+            self.crumbs += 1
+            return fetched(f"crumb{self.crumbs}", ctype="text/plain")
+        if "/v8/finance/chart/" in url:
+            return fetched(CHART)
+        if "quoteSummary" in url:
+            if "crumb=crumb1" in url:
+                return fetched(b"", status=401)
+            return fetched(
+                {"quoteSummary": {"result": [{"summaryDetail": {"trailingPE": {"raw": 9}}}]}}
+            )
+        return fetched("")
+
+
+def test_yahoo_crumb_is_shared_and_refreshed_once_on_401(run):
+    ctx = Context(pool=_CrumbPool(), waterfall=FakeWaterfall({}))
+    doc = run(ctx.channel("markets").feed(",".join(f"S{i}" for i in range(10))))
+    assert ctx.pool.crumbs == 2  # one handshake, one refresh, not one per ticker
+    assert doc.body.count("| 9.00 |") == 10
+
+
+@pytest.mark.parametrize("url", ["https://finance.yahoo.com/", "https://finance.yahoo.com/quote"])
+def test_markets_url_without_symbol_is_unsupported_not_indexerror(run, url):
+    with pytest.raises(WireUnsupported):
+        run(ctx_with().channel("markets").read(url))
+
+
+def test_coingecko_historical_data_url_uses_the_coin_id(run):
+    ctx = ctx_with({"/search?query=bitcoin": {"coins": [{"id": "bitcoin"}]},
+                    "/coins/markets": [{"symbol": "btc", "name": "Bitcoin", "current_price": 1}]})  # fmt: skip
+    run(ctx.channel("markets").read("https://www.coingecko.com/en/coins/bitcoin/historical_data"))
+    assert "/search?query=bitcoin" in ctx.waterfall.calls[0][0]
 
 
 # ---- linkedin / meta ----------------------------------------------------------------------------
@@ -234,6 +306,29 @@ def test_publishing_feeds_map_to_rss(run):
     run(ctx.channel("publishing").feed("@karpathy"))
     urls = [u for u, _ in ctx.waterfall.calls]
     assert urls == ["https://platformer.substack.com/feed", "https://medium.com/feed/@karpathy"]
+
+
+def test_medium_custom_domain_feed(run):
+    rss = fetched(b"<rss><channel><title>N</title></channel></rss>", ctype="application/rss+xml")
+    ctx = ctx_with({"/feed": rss})
+    run(ctx.channel("publishing").feed("https://user.medium.com"))
+    assert [u for u, _ in ctx.waterfall.calls] == ["https://user.medium.com/feed"]
+
+
+@pytest.mark.parametrize("path", ["explore/", "accounts/login/", "stories/someone/123/"])
+def test_instagram_reserved_paths_are_not_usernames(run, path):
+    page = '<html><head><meta property="og:title" content="ig page"></head></html>'
+    ctx = ctx_with({"instagram.com": page})
+    run(ctx.channel("meta_social").read(f"https://www.instagram.com/{path}"))
+    assert not any("web_profile_info" in u for u, _ in ctx.waterfall.calls)
+
+
+@pytest.mark.parametrize("path", ["blog/foo", "docs/hub", "papers/2401.00001", "collections/x"])
+def test_huggingface_site_pages_use_the_web_reader(run, path):
+    ctx = ctx_with({"huggingface.co": "<html><body><p>page</p></body></html>"})
+    doc = run(ctx.channel("hubs").read(f"https://huggingface.co/{path}"))
+    assert doc.channel == "web"
+    assert not any("/api/models/" in u for u, _ in ctx.waterfall.calls)
 
 
 def test_bluesky_post(run):
@@ -331,6 +426,44 @@ def test_bilibili_read(run):
     assert "w_rid=" in signed_call and "wts=" in signed_call
 
 
+class _FlakyHomePool(FakePool):
+    """Homepage priming fails once (503), then works; every other URL answers 200."""
+
+    def __init__(self, home):
+        super().__init__()
+        self.home, self.home_visits = home, 0
+
+    async def get(self, url, **kw):
+        if url == self.home:
+            self.home_visits += 1
+            return fetched(b"", status=503 if self.home_visits == 1 else 200)
+        return fetched(b"{}")
+
+
+@pytest.mark.parametrize(
+    "name, home, api",
+    [("bilibili", "https://www.bilibili.com/", "https://api.bilibili.com/x/a"),
+     ("xueqiu", "https://xueqiu.com/", "https://stock.xueqiu.com/v5/x")],
+)  # fmt: skip
+def test_priming_is_only_remembered_after_a_good_response(run, name, home, api):
+    ctx = Context(pool=_FlakyHomePool(home), waterfall=FakeWaterfall({}))
+    ch = ctx.channel(name)
+    run(ch._get(api))
+    run(ch._get(api))
+    run(ch._get(api))
+    assert ctx.pool.home_visits == 2  # retried after the 503, then remembered
+
+
+def test_bilibili_search_does_not_revisit_the_homepage(run):
+    ctx = ctx_with({}, {"/search/type": {"code": 0, "data": {"result": []}},
+                        "/x/web-interface/nav": {"data": {"wbi_img": {"img_url": "a/" + "b" * 32 + ".png", "sub_url": "a/" + "c" * 32 + ".png"}}},
+                        "www.bilibili.com/": ""})  # fmt: skip
+    run(ctx.channel("bilibili").search("x"))
+    assert [u for u in ctx.pool.calls if u == "https://www.bilibili.com/"] == [
+        "https://www.bilibili.com/"
+    ]  # primed once by _get, not once more by search
+
+
 def test_bilibili_needs_bvid(run):
     with pytest.raises(WireUnsupported):
         run(ctx_with().channel("bilibili").read("https://www.bilibili.com/anime/"))
@@ -381,6 +514,19 @@ def test_zhihu_question_and_article():
     assert q["title"] == "Q?" and [c.score for c in q["comments"]] == [50, 5]
     assert [c.id for c in zhihu.parse_initial(state, "question", "1", "11")["comments"]] == ["11"]
     assert zhihu.parse_initial(state, "article", "9")["body"] == "body"
+    assert zhihu.parse_initial(state, "question", "1", with_answers=False)["comments"] == []
+    only = zhihu.parse_initial(state, "question", "1", "11", with_answers=False)
+    assert [c.id for c in only["comments"]] == ["11"]  # the linked answer is the page itself
+
+
+def test_zhihu_read_honours_include_comments(run):
+    state = {"initialState": {"entities": {
+        "questions": {"1": {"title": "Q?", "detail": "<p>d</p>"}},
+        "answers": {"10": {"id": 10, "content": "<p>A1</p>"}}}}}  # fmt: skip
+    page = f'<script id="js-initialData" type="text/json">{orjson.dumps(state).decode()}</script>'
+    ctx = ctx_with({"zhihu.com": page})
+    doc = run(ctx.channel("zhihu").read("https://www.zhihu.com/question/1", include_comments=False))
+    assert doc.title == "Q?" and doc.comments == []
 
 
 def test_v2ex_topic(run):

@@ -1,5 +1,6 @@
 """X / Twitter: zero-cookie single posts (fxtwitter, vxtwitter, syndication); GraphQL for the rest."""
 
+import asyncio
 import math
 import re
 from urllib.parse import quote, unquote, urlsplit
@@ -37,6 +38,10 @@ _MAIN_JS = re.compile(
     r"https://abs\.twimg\.com/responsive-web/client-web(?:-legacy)?/main\.[\w]+\.js"
 )
 _QUERY_ID = re.compile(r'queryId:"([\w-]+)",operationName:"(\w+)"')
+
+
+class _Rejected(WireFetchError):
+    """X refused the cached query id / guest token (rotated or expired)."""
 
 
 def syndication_token(tweet_id: str) -> str:
@@ -122,7 +127,7 @@ def graphql_tweets(data) -> list[dict]:
                         "likes": legacy.get("favorite_count"), "retweets": legacy.get("retweet_count"),
                         "replies": legacy.get("reply_count"),
                         "views": (res.get("views") or {}).get("count"),
-                        "created": ts(_twitter_date(legacy.get("created_at"))),
+                        "created": ts(legacy.get("created_at")),
                         "reply_to": legacy.get("in_reply_to_status_id_str"),
                     })  # fmt: skip
             for v in o.values():
@@ -133,17 +138,6 @@ def graphql_tweets(data) -> list[dict]:
 
     walk(data)
     return out
-
-
-def _twitter_date(value):
-    from email.utils import parsedate_to_datetime
-
-    if not value:
-        return None
-    try:
-        return parsedate_to_datetime(value).isoformat()
-    except (TypeError, ValueError):
-        return value
 
 
 def tweet_items(tweets: list[dict]) -> list[dict]:
@@ -170,7 +164,7 @@ def parse_syndication_timeline(html: str) -> list[dict]:
                 "id": t.get("id_str"), "author": (t.get("user") or {}).get("screen_name"),
                 "text": t.get("full_text") or t.get("text", ""), "likes": t.get("favorite_count"),
                 "retweets": t.get("retweet_count"), "replies": t.get("reply_count"), "views": None,
-                "created": ts(_twitter_date(t.get("created_at"))),
+                "created": ts(t.get("created_at")),
             })  # fmt: skip
     return out
 
@@ -182,6 +176,7 @@ class XChannel(Channel):
         super().__init__(ctx)
         self._query_ids: dict[str, str] = {}
         self._guest: str | None = None
+        self._init_lock = asyncio.Lock()  # concurrent first calls share one bundle/guest fetch
 
     # ---- single posts (no cookies) ---------------------------------------------------------
     async def read(self, url, *, query=None, section=None, include_comments=True):
@@ -239,27 +234,38 @@ class XChannel(Channel):
 
     # ---- GraphQL -----------------------------------------------------------------------------
     async def _ids(self) -> dict[str, str]:
-        if not self._query_ids:
-            home = await self.fetch("https://x.com/", archive=False, browser=False)
-            m = _MAIN_JS.search(home.text)
-            if not m:
-                raise WireUnsupported("x: couldn't locate the web client bundle for GraphQL ids")
-            js = await self.fetch(m[0], archive=False, browser=False)
-            self._query_ids = {op: qid for qid, op in _QUERY_ID.findall(js.text)}
-        return self._query_ids
+        async with self._init_lock:
+            if not self._query_ids:
+                home = await self.fetch("https://x.com/", archive=False, browser=False)
+                m = _MAIN_JS.search(home.text)
+                if not m:
+                    raise WireUnsupported(
+                        "x: couldn't locate the web client bundle for GraphQL ids"
+                    )
+                js = await self.fetch(m[0], archive=False, browser=False)
+                self._query_ids = {op: qid for qid, op in _QUERY_ID.findall(js.text)}
+            return self._query_ids
 
     async def _guest_token(self) -> str:
-        if not self._guest:
-            f = await self.ctx.pool.get(
-                "https://api.x.com/1.1/guest/activate.json", method="POST", impersonate="chrome",
-                headers={"authorization": f"Bearer {BEARER}"},
-            )  # fmt: skip
-            self._guest = parse_json(f.content).get("guest_token")
+        async with self._init_lock:
             if not self._guest:
-                raise WireUnsupported("x refused a guest token")
-        return self._guest
+                f = await self.ctx.pool.get(
+                    "https://api.x.com/1.1/guest/activate.json", method="POST", impersonate="chrome",
+                    headers={"authorization": f"Bearer {BEARER}"},
+                )  # fmt: skip
+                self._guest = parse_json(f.content).get("guest_token")
+                if not self._guest:
+                    raise WireUnsupported("x refused a guest token")
+            return self._guest
 
     async def graphql(self, op: str, variables: dict, cookies: dict | None = None) -> dict:
+        try:
+            return await self._graphql(op, variables, cookies)
+        except _Rejected:  # ids rotate and guest tokens expire: refetch both, retry once
+            self._query_ids, self._guest = {}, None
+            return await self._graphql(op, variables, cookies)
+
+    async def _graphql(self, op: str, variables: dict, cookies: dict | None) -> dict:
         qid = (await self._ids()).get(op)
         if not qid:
             raise WireUnsupported(f"x GraphQL operation {op} not found in the web bundle")
@@ -286,6 +292,8 @@ class XChannel(Channel):
                 for name in re.split(r",\s*", missing[0][1]):
                     features[name.strip()] = True
                 continue
+            if f.status in (400, 401, 403):
+                raise _Rejected(f"x GraphQL {op}: HTTP {f.status}")
             if not f.ok:
                 raise WireFetchError(f"x GraphQL {op}: HTTP {f.status}")
             return data

@@ -1,9 +1,17 @@
 """Hacker News (Algolia API) and Lobsters (.json) threads, search and front pages."""
 
+import asyncio
 import re
 from urllib.parse import parse_qs, quote, urlsplit
 
-from agent_wire.channels.base import Channel, WireUnsupported, html_to_markdown, listing, ts
+from agent_wire.channels.base import (
+    Channel,
+    WireUnsupported,
+    html_to_markdown,
+    listing,
+    tree_keep,
+    ts,
+)
 from agent_wire.models import WireComment, WireSearchHit
 
 ALGOLIA = "https://hn.algolia.com/api/v1"
@@ -16,18 +24,23 @@ def _count(c: dict) -> int:
     return sum(1 + _count(k) for k in c.get("children") or [])
 
 
-def parse_hn_comments(children: list, op: str | None, depth: int = 0) -> list[WireComment]:
+def parse_hn_comments(
+    children: list, op: str | None, depth: int = 0, keep: set[int] | None = None
+) -> list[WireComment]:
+    """Comment tree capped at MAX_COMMENTS, shallowest first (HN threads reach thousands)."""
+    if keep is None:
+        keep = tree_keep(children)
     out = []
     for c in children or []:
-        if not c.get("text") and not c.get("children"):
-            continue  # deleted leaf
+        if id(c) not in keep or (not c.get("text") and not c.get("children")):
+            continue  # over the cap, or a deleted leaf
         out.append(
             WireComment(
                 id=str(c["id"]), body=html_to_markdown(c.get("text") or "[deleted]"),
                 author_handle=c.get("author"), timestamp=ts(c.get("created_at_i")),
                 score=_count(c), score_kind="replies",  # HN hides comment points
                 depth=depth, is_op=bool(op and c.get("author") == op),
-                replies=parse_hn_comments(c.get("children"), op, depth + 1),
+                replies=parse_hn_comments(c.get("children"), op, depth + 1, keep),
             )
         )  # fmt: skip
     return out
@@ -88,7 +101,9 @@ class HackerNewsChannel(Channel):
         if item.get("url"):
             body = f"Link: {item['url']}\n\n{body}".strip()
         comments = (
-            parse_hn_comments(item.get("children"), item.get("author")) if include_comments else []
+            await asyncio.to_thread(parse_hn_comments, item.get("children"), item.get("author"))
+            if include_comments
+            else []
         )
         return self.doc(
             f, url, title=item.get("title") or f"HN comment {item_id}",

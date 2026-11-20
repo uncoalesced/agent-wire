@@ -47,6 +47,14 @@ def test_polymarket_odds_search_and_read(make_ctx, run):
     assert "Markets:" in doc.body and doc.metadata["volume"] == 4500000
 
 
+def test_polymarket_market_slug_inside_a_multi_market_event(make_ctx, run):
+    market = {"slug": "fed-25bps", "question": "25 bps cut?", "outcomes": '["Yes", "No"]',
+              "outcomePrices": '["0.62", "0.38"]', "volume": "300"}  # fmt: skip
+    ctx = make_ctx({"events?slug": [], "markets?slug": [market]})
+    doc = run(ctx.channel("polymarket").read("https://polymarket.com/market/fed-25bps"))
+    assert doc.title == "25 bps cut?" and "Yes 62%" in doc.body
+
+
 # ---- stocktwits ---------------------------------------------------------------------------------
 STREAM = {"symbol": {"title": "NVIDIA", "watchlist_count": 1000},
           "messages": [{"id": 1, "body": "$NVDA up", "created_at": NOW.isoformat(),
@@ -229,6 +237,30 @@ def test_reddit_search_falls_back_to_pullpush(make_ctx, run):
     hits = run(ctx.channel("reddit").search("uv python", since=NOW - timedelta(days=30)))
     assert hits[0].title == "uv is great" and hits[0].engagement["score"] == 12
     assert not any("arctic-shift" in u for u, _ in ctx.waterfall.calls)
+
+
+def test_reddit_json_search_honours_window_and_sort(make_ctx, run):
+    old = {**POST, "id": "old", "created_utc": int((NOW - timedelta(days=25)).timestamp())}
+    listing = {"data": {"children": [{"kind": "t3", "data": POST}, {"kind": "t3", "data": old}]}}
+    ctx = make_ctx({"search.json": listing})
+    hits = run(ctx.channel("reddit").search("uv", since=NOW - timedelta(days=3), sort="latest"))
+    url = ctx.waterfall.calls[0][0]
+    assert "t=week" in url and "sort=new" in url
+    assert len(hits) == 1  # the 25-day-old post is outside since, whatever the coarse t= window
+
+
+@pytest.mark.parametrize("sort, want", [("top", "top"), ("weird", "relevance"), ("new", "new")])
+def test_reddit_sort_is_mapped_to_reddits_enum(make_ctx, run, sort, want):
+    ctx = make_ctx({"search.json": {"data": {"children": []}}})
+    run(ctx.channel("reddit").search("uv", sort=sort))
+    assert f"sort={want}" in ctx.waterfall.calls[0][0]
+
+
+def test_reddit_pullpush_honours_sort(make_ctx, run):
+    routes = {"pullpush.io": {"data": [POST]}, "reddit.com": fetched(b"blocked", status=403)}
+    ctx = make_ctx(routes)
+    run(ctx.channel("reddit").search("uv python", sort="new"))
+    assert "sort_type=created_utc" in next(u for u, _ in ctx.waterfall.calls if "pullpush" in u)
 
 
 # ---- fediverse ----------------------------------------------------------------------------------

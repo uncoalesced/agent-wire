@@ -11,6 +11,7 @@ from selectolax.lexbor import LexborHTMLParser
 
 from agent_wire.channels.base import Channel, WireUnsupported, compact_count, listing, on_host, ts
 from agent_wire.compression.anchor_slicer import parse_line_anchor, slice_lines, slice_section
+from agent_wire.engine.errors import WireFetchError
 from agent_wire.models import WireComment, WireDocument, WireSearchHit
 
 API = "https://api.github.com"
@@ -19,7 +20,12 @@ _LANG = {"py": "python", "js": "javascript", "ts": "typescript", "rs": "rust", "
          "rb": "ruby", "java": "java", "kt": "kotlin", "c": "c", "h": "c", "cpp": "cpp",
          "cs": "csharp", "sh": "bash", "md": "markdown", "toml": "toml", "yml": "yaml",
          "yaml": "yaml", "json": "json", "tsx": "tsx", "jsx": "jsx", "swift": "swift"}  # fmt: skip
-_SKIP_PATHS = frozenset({"orgs", "settings", "notifications", "login", "marketplace", "topics"})
+_SKIP_PATHS = frozenset({
+    "about", "account", "apps", "codespaces", "collections", "contact", "customer-stories",
+    "enterprise", "events", "explore", "features", "issues", "join", "login", "logout",
+    "marketplace", "new", "notifications", "orgs", "organizations", "pricing", "pulls", "readme",
+    "search", "security", "settings", "signup", "site", "sponsors", "team", "topics", "trending",
+})  # fmt: skip
 
 
 @cache
@@ -90,17 +96,25 @@ class GitHubChannel(Channel):
         host, segs = parts.hostname or "", [s for s in parts.path.split("/") if s]
         anchor = section or parts.fragment or None
         if on_host(host, "githubusercontent.com"):
+            if len(segs) < 4:  # needs owner/repo/ref/path
+                return await self.ctx.channel("web").read(url, query=query, section=section)
             return await self._blob_raw(url, segs[0], segs[1], "/".join(segs[3:]), url)
         if host == "gist.github.com" and len(segs) >= 2:
             return await self._gist(url, segs[-1])
         if not segs or segs[0] in _SKIP_PATHS:
             return await self.ctx.channel("web").read(url, query=query, section=section)
         if len(segs) == 1:
-            return await self._user(url, segs[0])
+            try:
+                return await self._user(url, segs[0])
+            except WireFetchError:  # not a real account (a site page): read it as a web page
+                return await self.ctx.channel("web").read(url, query=query, section=section)
         owner, repo = segs[0], segs[1].removesuffix(".git")
         kind = segs[2] if len(segs) > 2 else ""
         if not kind:
-            return await self._repo(url, owner, repo, anchor)
+            try:
+                return await self._repo(url, owner, repo, anchor)
+            except WireFetchError:
+                return await self.ctx.channel("web").read(url, query=query, section=section)
         if kind == "blob" and len(segs) > 4:
             raw = f"{RAW}/{owner}/{repo}/{segs[3]}/{'/'.join(segs[4:])}"
             return await self._blob_raw(raw, owner, repo, "/".join(segs[4:]), url)
@@ -115,14 +129,13 @@ class GitHubChannel(Channel):
         return await self.ctx.channel("web").read(url, query=query, section=section)
 
     async def _repo(self, url, owner, repo, anchor):
-        (meta, f), (tree, _), readme = await asyncio.gather(
+        (meta, f), tree, readme = await asyncio.gather(
             self.api(f"/repos/{owner}/{repo}"),
-            self.api(f"/repos/{owner}/{repo}/contents"),
+            self._contents(owner, repo),
             self._readme(owner, repo),
         )
         files = " ".join(
-            f"`{e['name']}/`" if e.get("type") == "dir" else f"`{e['name']}`"
-            for e in (tree if isinstance(tree, list) else [])
+            f"`{e['name']}/`" if e.get("type") == "dir" else f"`{e['name']}`" for e in tree
         )
         if anchor and readme:
             readme = slice_section(readme, anchor) or readme
@@ -139,6 +152,13 @@ class GitHubChannel(Channel):
         )  # fmt: skip
         return self.doc(f, url, title=meta.get("full_name", f"{owner}/{repo}"),
                         author_handle=owner, body=body, metadata=stats)  # fmt: skip
+
+    async def _contents(self, owner, repo) -> list:
+        try:
+            tree, _ = await self.api(f"/repos/{owner}/{repo}/contents")
+        except WireFetchError:  # an empty repo has no contents (404)
+            return []
+        return tree if isinstance(tree, list) else []
 
     async def _readme(self, owner, repo) -> str:
         try:
