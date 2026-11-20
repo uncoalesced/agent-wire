@@ -88,6 +88,30 @@ def test_arxiv_abstract_fallback(run):
     assert "## Abstract\nThe dominant sequence transduction models..." in doc.body
 
 
+_PAPER = (
+    "<html><body><article><h1>Attention</h1><h2>Introduction</h2><p>"
+    + "Transformers use attention. " * 20
+    + "</p></article></body></html>"
+)
+
+
+@pytest.mark.parametrize("export", [fetched(b"", status=429), fetched("<html>blocked</html>")])
+def test_arxiv_read_survives_broken_export_api(run, export):
+    ctx = ctx_with({"export.arxiv.org/api/query": export,
+                    "arxiv.org/html/1706.03762": fetched(_PAPER)})  # fmt: skip
+    doc = run(ctx.channel("arxiv").read("https://arxiv.org/abs/1706.03762"))
+    assert "Transformers use attention." in doc.body and doc.title == "1706.03762"
+
+
+def test_arxiv_semantic_scholar_id_keeps_v_in_old_style_ids(run):
+    ctx = ctx_with({"export.arxiv.org": fetched(b"", status=429),
+                    "semanticscholar.org": {"citationCount": 7},
+                    "arxiv.org/html/solv-int/9901001v2": fetched(_PAPER)})  # fmt: skip
+    run(ctx.channel("arxiv").read("https://arxiv.org/abs/solv-int/9901001v2"))
+    s2 = [c[0] for c in ctx.waterfall.calls if "semanticscholar" in c[0]]
+    assert s2 == [arxiv_papers.S2.format("solv-int/9901001")]
+
+
 # ---- hubs ---------------------------------------------------------------------------------------
 
 
