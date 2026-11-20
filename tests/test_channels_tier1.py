@@ -1,8 +1,9 @@
+import asyncio
 from datetime import UTC, datetime
 
 import orjson
 import pytest
-from conftest import FakeVault, fetched
+from conftest import FakePool, FakeVault, fetched
 
 from agent_wire.channels.base import WireUnsupported, compact_count, html_to_markdown, ts
 from agent_wire.channels.tier1_global import (
@@ -514,6 +515,50 @@ def test_x_search_and_me_need_session(make_ctx, run):
         run(ctx.channel("x").search("ryzen"))
     with pytest.raises(WireUnsupported):
         run(ctx.channel("x").me("likes"))
+
+
+class _XPool(FakePool):
+    """X web API whose first guest token is already expired (403)."""
+
+    activations = 0
+
+    async def get(self, url, **kw):
+        if "guest/activate" in url:
+            self.activations += 1
+            return fetched({"guest_token": f"g{self.activations}"})
+        if "/graphql/" in url:
+            if kw["headers"]["x-guest-token"] == "g1":
+                return fetched(b"{}", status=403)
+            return fetched({"data": {"ok": True}})
+        return fetched(b"nope", status=404)
+
+
+def _x_ctx(make_ctx):
+    ctx = make_ctx({
+        "abs.twimg.com": 'queryId:"q1",operationName:"TweetDetail"',
+        "https://x.com/": '<script src="https://abs.twimg.com/responsive-web/client-web/main.ab.js">',
+    })  # fmt: skip
+    ctx.pool = _XPool()
+    return ctx
+
+
+def test_x_graphql_refreshes_expired_guest_token_once(make_ctx, run):
+    ctx = _x_ctx(make_ctx)
+    data = run(ctx.channel("x").graphql("TweetDetail", {}))
+    assert data == {"data": {"ok": True}} and ctx.pool.activations == 2
+
+
+def test_x_graphql_init_is_shared_between_concurrent_calls(make_ctx, run):
+    ctx = _x_ctx(make_ctx)
+    ctx.pool.activations = 1  # next token is g2, which works
+
+    async def go():
+        ch = ctx.channel("x")
+        return await asyncio.gather(*(ch.graphql("TweetDetail", {}) for _ in range(5)))
+
+    run(go())
+    assert ctx.pool.activations == 2  # one fresh token for all five
+    assert sum(u == "https://x.com/" for u, _ in ctx.waterfall.calls) == 1
 
 
 def test_x_syndication_timeline_parse():
