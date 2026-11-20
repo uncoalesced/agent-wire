@@ -1,6 +1,7 @@
 """Regression tests for audited research-engine bugs (offline)."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from conftest import fetched
@@ -8,6 +9,8 @@ from test_research import make_wire, routes
 
 from agent_wire.research.engine import Researcher
 from agent_wire.research.watch import run_watches
+
+NOW = datetime.now(UTC)
 
 
 def run(coro):
@@ -53,4 +56,17 @@ def test_cancellation_is_not_swallowed(tmp_path):
     r._search = boom
     with pytest.raises(asyncio.CancelledError):
         run(r.run("agent web access", sources=["hn"], depth="quick"))
+    run(w.close())
+
+
+def test_same_post_from_two_queries_is_counted_once(tmp_path):
+    stamp = int((NOW - timedelta(hours=5)).timestamp())
+    hn = {"hits": [{"objectID": "1", "title": "Wire agent web access", "points": 80,
+                    "num_comments": 30, "created_at_i": stamp}]}  # fmt: skip
+    w = make_wire(tmp_path, {"hn.algolia.com/api/v1/search": hn})
+    topic = "what is the agent web access"  # deep depth runs the topic and its core terms
+    r = run(Researcher(w).run(topic, sources=["hn"], depth="deep"))
+    assert r.counts == {"hackernews": 1} and len(r.items) == 1
+    assert r.clusters[0].engagement == {"score": 80, "comments": 30}
+    assert r.items[0].queries == [topic, "agent web access"]
     run(w.close())

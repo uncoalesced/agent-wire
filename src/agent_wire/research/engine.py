@@ -12,6 +12,7 @@ from itertools import pairwise
 from curl_cffi.requests.exceptions import RequestException
 
 from agent_wire.channels.base import WireUnsupported, relative_ts, ts
+from agent_wire.channels.tier1_global.search import url_key
 from agent_wire.compression.bm25_slicer import rank_comments
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.firewall.inbound_shield import shield_comments
@@ -99,6 +100,27 @@ def snippet_date(snippet: str) -> datetime | None:
     return None
 
 
+def _dedupe(items: list[Item]) -> list[Item]:
+    """One item per (source, URL): several queries return the same post; count it once."""
+    best: dict[tuple[str, str], Item] = {}
+    out: list[Item] = []
+    for it in items:
+        it.queries = [it.query]
+        if not it.hit.url:
+            out.append(it)
+            continue
+        key = (it.source, url_key(it.hit.url))
+        if (cur := best.get(key)) is None:
+            best[key] = it
+            out.append(it)
+            continue
+        keep = it if raw_engagement(it.hit) > raw_engagement(cur.hit) else cur
+        keep.queries = list(dict.fromkeys([*cur.queries, *it.queries]))
+        best[key] = keep
+        out[out.index(cur)] = keep
+    return out
+
+
 def _accepts_since(fn) -> bool:
     try:
         return "since" in inspect.signature(fn).parameters
@@ -173,7 +195,7 @@ class Researcher:
                 items.append(Item(hit=h, query=q, origin=source))
         for s in ok:
             result.gaps.pop(s, None)
-        return items
+        return _dedupe(items)
 
     # ---- modes -------------------------------------------------------------------------------
     async def run(self, topic: str = "", *, days: int = 30, sources=None, mode: str = "auto",
@@ -223,7 +245,7 @@ class Researcher:
         out = []
         for subj in plan.subjects:
             pool = [Item(hit=i.hit, query=subj) for i in items
-                    if i.query == subj or mentions(i, [subj])]  # fmt: skip
+                    if i.query == subj or subj in i.queries or mentions(i, [subj])]  # fmt: skip
             mine = score_items(pool, subj, plan.since, plan.until, plan.days)
             eng: Counter = Counter()
             for i in mine:

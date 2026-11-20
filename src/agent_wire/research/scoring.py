@@ -1,7 +1,7 @@
 """Score research items by relevance x (engagement, freshness), with a relevance floor."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from agent_wire.models import WireSearchHit
@@ -19,6 +19,7 @@ MIN_SOURCE_TOP = math.log1p(50)
 class Item:
     hit: WireSearchHit
     query: str = ""
+    queries: list[str] = field(default_factory=list)  # every query this exact item answered
     origin: str = ""  # the planned source that produced it ("news" for a Techmeme item)
     relevance: float = 0.0
     freshness: float = 0.0
