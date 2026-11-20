@@ -1,13 +1,17 @@
 """Persistent curl_cffi connection pool with browser TLS / HTTP2 fingerprints."""
 
+import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from email.message import Message
 from urllib.parse import urljoin, urlsplit
 
 import orjson
+from curl_cffi import CurlOpt
 from curl_cffi.requests import AsyncSession
 
 from agent_wire import __version__
+from agent_wire.engine.errors import WireFetchError
 from agent_wire.firewall.outbound_privacy import check_request
 from agent_wire.firewall.ssrf_guard import check_resolved
 
@@ -16,6 +20,9 @@ USER_AGENT = f"agent-wire/{__version__} (+https://github.com/uncoalesced/agent-w
 MAX_REDIRECTS = 8
 MAX_COOKIE_REDIRECTS = 5
 REDIRECTS = frozenset({301, 302, 303, 307, 308})
+MAX_BODY_ENV = "WIRE_MAX_BODY_MB"
+DEFAULT_MAX_BODY_MB = 20
+_AUTH_HEADERS = frozenset({"authorization", "x-api-key"})
 _TWO_LEVEL_TLDS = frozenset(
     {"co.uk", "org.uk", "ac.uk", "com.au", "co.in", "co.jp", "com.cn", "com.br", "co.kr", "com.tw"}
 )
@@ -26,6 +33,19 @@ def registrable_domain(host: str | None) -> str:
     labels = (host or "").lower().rstrip(".").split(".")
     n = 3 if ".".join(labels[-2:]) in _TWO_LEVEL_TLDS else 2
     return ".".join(labels[-n:])
+
+
+def max_body_bytes() -> int:
+    try:
+        mb = float(os.environ.get(MAX_BODY_ENV) or DEFAULT_MAX_BODY_MB)
+    except ValueError:
+        mb = DEFAULT_MAX_BODY_MB
+    return int(max(mb, 0.001) * 1024 * 1024)
+
+
+def strip_auth(headers: dict[str, str] | None) -> dict[str, str]:
+    """Credentials headers never travel to another site, a mirror or an archive."""
+    return {k: v for k, v in (headers or {}).items() if k.lower() not in _AUTH_HEADERS}
 
 
 @dataclass
@@ -110,38 +130,80 @@ class HttpPool:
             "timeout": timeout or self.timeout,
         }
         if not cookies:
-            return await _follow(self._session(impersonate), method, url, kwargs,
-                                 cookies=None, allow_private=allow_private)  # fmt: skip
+            return await _follow(self._session(impersonate), method, url, kwargs, cookies=None,
+                                 allow_private=allow_private, impersonate=impersonate)  # fmt: skip
         async with AsyncSession(impersonate=impersonate) as s:
             return await _follow(s, method, url, kwargs, cookies=cookies,
-                                 allow_private=allow_private)  # fmt: skip
+                                 allow_private=allow_private, impersonate=impersonate)  # fmt: skip
 
 
-async def _follow(session, method, url, kwargs, *, cookies, allow_private) -> Fetched:
+@asynccontextmanager
+async def _for_hop(session, impersonate, pin):
+    """The shared session, or a throwaway one whose connection is pinned to the checked IPs."""
+    if not pin:
+        yield session
+        return
+    async with AsyncSession(impersonate=impersonate) as s:
+        s.curl_options = {CurlOpt.RESOLVE: [pin]}
+        yield s
+
+
+async def _read(r) -> bytes:
+    """The body, stopping (and erroring) once it passes the size cap; decoded bytes are counted."""
+    cap = max_body_bytes()
+    too_big = WireFetchError(f"{r.url}: response larger than {cap >> 20} MB ({MAX_BODY_ENV})")
+    declared = r.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap and not r.headers.get("content-encoding"):
+        raise too_big
+    if not hasattr(r, "aiter_content"):
+        if len(r.content) > cap:
+            raise too_big
+        return r.content
+    chunks, size = [], 0
+    try:
+        async for chunk in r.aiter_content():
+            size += len(chunk)
+            if size > cap:
+                raise too_big
+            chunks.append(chunk)
+    finally:
+        await r.aclose()
+    return b"".join(chunks)
+
+
+async def _follow(session, method, url, kwargs, *, cookies, allow_private,
+                  impersonate=None) -> Fetched:  # fmt: skip
     """Follow redirects by hand so every hop is re-checked by the SSRF guard and, with cookies,
-    by the privacy jail; cookies never follow a redirect onto another site."""
+    by the privacy jail; cookies never follow a redirect onto another site or down to http, and
+    credentials headers never leave the site they were meant for. Each hop connects to the
+    addresses the guard just checked."""
     current, hops = url, MAX_COOKIE_REDIRECTS if cookies else MAX_REDIRECTS
     for hop in range(hops + 1):
-        if not allow_private:
-            await check_resolved(current)
-        r = await session.request(method, current, cookies=cookies, allow_redirects=False,
-                                  **kwargs)  # fmt: skip
-        location = r.headers.get("location")
-        if r.status_code not in REDIRECTS or not location or hop == hops:
-            return _wrap(r, url)
+        pin = None if allow_private else await check_resolved(current)
+        async with _for_hop(session, impersonate, pin) as s:
+            r = await s.request(method, current, cookies=cookies, allow_redirects=False,
+                                stream=True, **kwargs)  # fmt: skip
+            location = r.headers.get("location")
+            if r.status_code not in REDIRECTS or not location or hop == hops:
+                return _wrap(r, url, await _read(r))
+            if hasattr(r, "aclose"):
+                await r.aclose()
         nxt = urljoin(current, location)
+        here, there = urlsplit(current), urlsplit(nxt)
         if cookies:
-            if registrable_domain(urlsplit(nxt).hostname) != registrable_domain(
-                urlsplit(url).hostname
-            ):
-                return _wrap(r, url)  # cross-site redirect: stop rather than leak cookies
+            if registrable_domain(there.hostname) != registrable_domain(urlsplit(url).hostname):
+                return _wrap(r, url, b"")  # cross-site redirect: stop rather than leak cookies
+            if here.scheme == "https" and there.scheme == "http":
+                return _wrap(r, url, b"")  # never put session cookies on a plaintext hop
             check_request(method, nxt, authenticated=True)
+        if registrable_domain(there.hostname) != registrable_domain(here.hostname):
+            kwargs = {**kwargs, "headers": strip_auth(kwargs.get("headers"))}
         if r.status_code == 303 or (r.status_code in (301, 302) and method.upper() == "POST"):
             method = "GET"  # what browsers and curl do: the body is not re-sent
             kwargs = {**kwargs, "json": None, "data": None, "multipart": None}
         current, kwargs["params"] = nxt, None
 
 
-def _wrap(r, requested: str) -> Fetched:
+def _wrap(r, requested: str, body: bytes) -> Fetched:
     headers = {k.lower(): v for k, v in r.headers.items()}
-    return Fetched(str(r.url), r.status_code, headers, r.content, requested=requested)
+    return Fetched(str(r.url), r.status_code, headers, body, requested=requested)
