@@ -22,6 +22,7 @@ TIMEOUT_S = 15
 EXCERPT_CHARS = 200
 QUOTE_OVERLAP = 0.8  # share of a quote's words that must sit together on the page
 MIN_QUOTE_WORDS = 4
+FUZZY_MIN_WORDS = 8  # shorter quotes must match word for word: one wrong word changes them
 BLOCK_STATUSES = frozenset({401, 403, 429, 503})
 PRIVATE_NOTE = "private or internal address, not fetched"
 SHORT_BODY = (
@@ -46,6 +47,15 @@ _SOFT_404_BODY = re.compile(
     r"|(?:does not|doesn't) exist|no longer available|has been removed",
     re.IGNORECASE,
 )
+_SOFT_404_OPENING = re.compile(  # _SOFT_404_BODY without the bare "404", which articles use
+    r"page not found|page (?:you (?:requested|are looking for)|cannot be found)"
+    r"|(?:does not|doesn't) exist|no longer available|has been removed",
+    re.IGNORECASE,
+)
+# index.html, /home, /en/ are the home page under another name: redirecting to "/" is no bounce
+_HOME_PATH = re.compile(
+    r"^/?(?:index\.\w+|default\.\w+|home|[a-z]{2}(?:[-_][a-z]{2})?)?/?$", re.IGNORECASE
+)
 
 
 @dataclass(slots=True)
@@ -57,7 +67,7 @@ class Citation:
 @dataclass(slots=True)
 class Check:
     url: str
-    verdict: str  # OK, SOFT_404, ARCHIVED, DEAD, BLOCKED, QUOTE_MISSING
+    verdict: str  # OK, SOFT_404, ARCHIVED, DEAD, BLOCKED, UNREACHABLE, QUOTE_MISSING
     status: int | None = None
     title: str | None = None
     excerpt: str = ""
@@ -108,11 +118,16 @@ def extract_citations(text: str) -> list[Citation]:
     """Every distinct link in the text, with a quoted passage when one sits on the same line."""
     out: dict[str, Citation] = {}
     for line in (text or "").splitlines():
-        quote = next((q.strip() for q in _QUOTE.findall(line)
-                      if len(_WORD.findall(q)) >= MIN_QUOTE_WORDS), None)  # fmt: skip
-        urls = [m.rstrip(_TRAILING) for m in _MD_LINK.findall(line)] + find_urls(line)
-        for url in urls:
+        spans = [(m.start(1), m.end(1), m[1].rstrip(_TRAILING)) for m in _MD_LINK.finditer(line)]
+        spans += [(m.start(), m.end(), m[0].rstrip(_TRAILING)) for m in _BARE.finditer(line)]
+        quoted: dict[str, str] = {}  # a quote belongs to the link nearest to it, not to every link
+        for qm in _QUOTE.finditer(line):
+            if spans and len(_WORD.findall(qm[1])) >= MIN_QUOTE_WORDS:
+                near = min(spans, key=lambda s: max(s[0] - qm.end(), qm.start() - s[1], 0))
+                quoted.setdefault(normalize_url(near[2]), qm[1].strip())
+        for _, _, url in spans:
             key = normalize_url(url)
+            quote = quoted.get(key)
             if key not in out:
                 out[key] = Citation(url, quote)
             elif quote and not out[key].quote:
@@ -120,30 +135,44 @@ def extract_citations(text: str) -> list[Citation]:
     return list(out.values())
 
 
+_NEGATION = frozenset({"not", "no", "never", "none", "nobody", "nothing", "nor"})
+
+
 def _words(text: str) -> list[str]:
-    return [w.lower() for w in _WORD.findall(text)]
+    text = re.sub(r"n['’]t\b", " not", text.lower())  # isn't -> is not
+    return _WORD.findall(text.replace("cannot", "can not"))
+
+
+def _lcs(a: list[str], b: list[str]) -> int:
+    row = [0] * (len(b) + 1)
+    for x in a:
+        prev = 0
+        for j, y in enumerate(b, 1):
+            prev, row[j] = row[j], prev + 1 if x == y else max(row[j], row[j - 1])
+    return row[-1]
 
 
 def quote_found(quote: str, body: str) -> bool:
-    """Exact (normalised) match, else >= 80% of the quote's words inside one same-length window."""
+    """Whole-word exact match, else the quote's words in order (>= 80%) inside one same-length
+    window of the page whose negations match and whose numbers include the quote's."""
     q, page = _words(quote), _words(body)
     if not q:
         return True
-    if " ".join(q) in " ".join(page):
+    if f" {' '.join(q)} " in f" {' '.join(page)} ":
         return True
     need, k = Counter(q), len(q)
-    if len(page) <= k:
-        return sum((need & Counter(page)).values()) / k >= QUOTE_OVERLAP
-    window = Counter(page[:k])
-    best = sum((need & window).values())
-    for i in range(k, len(page)):
-        window[page[i]] += 1
-        window[page[i - k]] -= 1
-        if page[i] in need or page[i - k] in need:
-            best = max(best, sum((need & window).values()))
-            if best / k >= QUOTE_OVERLAP:
-                return True
-    return best / k >= QUOTE_OVERLAP
+    if k < FUZZY_MIN_WORDS:
+        return False
+    q_neg = _NEGATION.intersection(q)
+    q_num = {w for w in q if any(c.isdigit() for c in w)}
+    for i in range(max(len(page) - k, 0) + 1):
+        win = page[i : i + k]
+        if sum((need & Counter(win)).values()) / k < QUOTE_OVERLAP:
+            continue
+        if _lcs(q, win) / k >= QUOTE_OVERLAP and _NEGATION.intersection(win) == q_neg \
+                and q_num <= set(win):  # fmt: skip
+            return True
+    return False
 
 
 def search_hint(url: str, title: str | None = None) -> str:
@@ -204,14 +233,24 @@ class Checker:
             status = int(m[1]) if m else None
             if status in BLOCK_STATUSES:
                 return Check(c.url, "BLOCKED", status, note="site refuses automated readers")
+            if status and status >= 500:  # a server error says nothing about the page being gone
+                return Check(c.url, "UNREACHABLE", status, note=f"HTTP {status}")
             return await self._gone(c, status, f"HTTP {status}" if status else "unreachable")
         except (RequestException, TimeoutError, OSError) as e:
-            return await self._gone(c, None, f"unreachable ({type(e).__name__})")
+            note = "timed out" if isinstance(e, TimeoutError) else type(e).__name__
+            return Check(c.url, "UNREACHABLE", note=note)
 
         ctype = f.content_type
         if ctype and "html" not in ctype and not ctype.startswith("text/"):
             size = f"{len(f.content) // 1024} KB"
-            return Check(c.url, "OK", f.status, excerpt=f"({ctype}, {size})")
+            check = Check(c.url, "OK", f.status, excerpt=f"({ctype}, {size})")
+            if check_quotes and c.quote:
+                if "json" in ctype:  # readable text: check it like a page
+                    if not quote_found(c.quote, f.text):
+                        check.verdict, check.quote = "QUOTE_MISSING", c.quote
+                else:  # PDF, images, archives: say so instead of a silent pass
+                    check.note = f"quote not checked: {ctype}"
+            return check
         text = f.text
         body, info = extract_article(text) if _is_html(ctype, text) else (text, {})
         title = (info.get("title") or "").strip() or None
@@ -235,11 +274,14 @@ class Checker:
     @staticmethod
     def _soft_404(requested: str, final: str, title: str | None, flat: str) -> bool:
         req, fin = urlsplit(requested), urlsplit(final or requested)
-        if req.path.strip("/") and not fin.path.strip("/") and not fin.query:
+        if (req.path.strip("/") and not fin.path.strip("/") and not fin.query
+                and not _HOME_PATH.match(req.path)):  # fmt: skip
             return True  # a deep link bounced to the home page
+        short = len(flat) < SHORT_BODY
         if title and _SOFT_404_TITLE.search(title):
-            return True
-        return len(flat) < SHORT_BODY and bool(_SOFT_404_BODY.search(flat[:400]))
+            # a long page titled "How to fix a 404" is an article unless its opening says not found
+            return short or bool(_SOFT_404_OPENING.search(flat[:200]))
+        return short and bool(_SOFT_404_BODY.search(flat[:400]))
 
     async def _gone(self, c: Citation, status: int | None, note: str) -> Check:
         raw, looked = await self._wayback(c.url)
@@ -255,6 +297,10 @@ class Checker:
         """(snapshot URL, whether the archive actually answered). The availability API is
         rate-limited and often answers empty, so the CDX index is the fallback."""
         if self.pool is None:
+            return None, False
+        try:
+            check_url(url)  # never hand a private or internal address to a third party
+        except WireBlockedError:
             return None, False
         try:
             if raw := await asyncio.wait_for(wayback_snapshot(self.pool, url), self.timeout_s):
@@ -288,6 +334,8 @@ _ADVICE = {
     "ARCHIVED": "the original is gone; cite the archived copy and say the original link is dead",
     "SOFT_404": "the page no longer has this content; replace it",
     "DEAD": "the link is dead and has no archived copy; replace it",
+    "UNREACHABLE": "could not reach the page (timeout or server error), so it is unverified, not "
+    "dead; retry later and do not call it dead",
 }
 
 _PRIVATE_ADVICE = (

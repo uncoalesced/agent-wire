@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from agent_wire.firewall.outbound_privacy import scrub
 from agent_wire.research.brief import engagement_line
 
 PERIODS = {"daily": 1, "weekly": 7}
@@ -18,9 +19,13 @@ async def digest(wire, period: str = "daily", *, trending: bool = True, save: bo
     if not watches and not trending:
         return "no watched topics (wire watch add <topic>)"
     for w in watches:
-        r, _, _ = await wire.research_result(w["topic"], days=days, platforms=w.get("sources"),
-                                             depth="quick", store=True)  # fmt: skip
         out += ["", f"## {w['topic']}"]
+        try:
+            r, _, _ = await wire.research_result(w["topic"], days=days, platforms=w.get("sources"),
+                                                 depth="quick", store=True)  # fmt: skip
+        except Exception as e:  # noqa: BLE001  one bad watch must not drop the rest
+            out.append(f"- failed: {type(e).__name__}: {scrub(str(e))[:160]}")
+            continue
         if not r.clusters:
             out.append("- nothing in this window")
         for c in r.clusters[:TOP_PER_TOPIC]:

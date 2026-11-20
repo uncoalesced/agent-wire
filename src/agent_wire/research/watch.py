@@ -58,7 +58,11 @@ async def run_watches(wire, topic: str | None = None) -> str:
         return "no watched topics (wire watch add <topic>)"
     out = []
     for w in watches:
-        r = await run_watch(wire, w)
+        try:
+            r = await run_watch(wire, w)
+        except Exception as e:  # noqa: BLE001  a stale source or bad watch must not stop the rest
+            out.append(f"## {w['topic']} · FAILED: {type(e).__name__}: {scrub(str(e))[:160]}")
+            continue
         head = f"## {r['topic']} · run #{r['run_id']}"
         if r["previous_run"]:
             head += f" · {len(r['new'])} new since run #{r['previous_run']}"

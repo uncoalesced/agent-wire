@@ -8,7 +8,7 @@ from agent_wire.channels.tier1_global.search import url_key
 from agent_wire.research.scoring import Item, raw_engagement
 
 TITLE_JACCARD = 0.6
-_WORD = re.compile(r"[a-z0-9]+")
+_WORD = re.compile(r"[^\W_]+")  # unicode letters and digits
 _NOISE = frozenset(
     [
         "show",
@@ -87,6 +87,11 @@ def _title_words(title: str) -> frozenset[str]:
     return frozenset(w for w in _WORD.findall(title.lower()) if w not in _NOISE)
 
 
+def _numbers(words: frozenset[str]) -> frozenset[str]:
+    """Versions and prices ("3.12", "90k") tell two otherwise-alike headlines apart."""
+    return frozenset(w for w in words if any(c.isdigit() for c in w))
+
+
 def _jaccard(a: frozenset, b: frozenset) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
@@ -119,7 +124,8 @@ def cluster(items: list[Item]) -> list[Cluster]:
         if len(words[a]) < 4:
             continue  # short titles ("@user", "ZED and python") collide by accident
         for b in range(a):
-            if len(words[b]) >= 4 and _jaccard(words[a], words[b]) >= TITLE_JACCARD:
+            if (len(words[b]) >= 4 and _numbers(words[a]) == _numbers(words[b])
+                    and _jaccard(words[a], words[b]) >= TITLE_JACCARD):  # fmt: skip
                 union(a, b)
 
     groups: dict[int, Cluster] = {}

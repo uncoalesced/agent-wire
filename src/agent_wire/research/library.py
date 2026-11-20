@@ -19,6 +19,9 @@ class Library:
     def related(self, topic: str, limit: int = 3, exclude: int | None = None) -> list[dict]:
         return self.store.search(topic, limit=limit, exclude=exclude)
 
+    async def related_async(self, topic: str, limit: int = 3, exclude: int | None = None):
+        return await self.store.search_async(topic, limit=limit, exclude=exclude)
+
     def search_markdown(self, query: str, limit: int = 10) -> str:
         hits = self.store.search(query, limit=limit)
         if not hits:

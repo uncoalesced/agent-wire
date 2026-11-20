@@ -1,7 +1,7 @@
 """Score research items by relevance x (engagement, freshness), with a relevance floor."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from agent_wire.models import WireSearchHit
@@ -12,6 +12,9 @@ WEIGHTS = {"score": 1.0, "likes": 1.0, "comments": 2.0, "reposts": 2.0, "reactio
            "stars": 0.1, "forks": 0.2, "views": 0.003, "volume24h": 0.001, "volume": 0.0001}  # fmt: skip
 RELEVANCE_FLOOR = 0.34  # below this an item is off-topic, however viral
 UNDATED_FRESHNESS = 0.35
+NEEDS_DATE = frozenset(
+    {"web", "news", "techmeme"}
+)  # their items exist to be recent; no date, no entry
 MIN_SOURCE_TOP = math.log1p(50)
 
 
@@ -19,6 +22,7 @@ MIN_SOURCE_TOP = math.log1p(50)
 class Item:
     hit: WireSearchHit
     query: str = ""
+    queries: list[str] = field(default_factory=list)  # every query this exact item answered
     origin: str = ""  # the planned source that produced it ("news" for a Techmeme item)
     relevance: float = 0.0
     freshness: float = 0.0
@@ -38,7 +42,9 @@ def relevance(hit: WireSearchHit, topic: str) -> float:
     """Share of topic terms present (title counts fully, snippet partly) + exact-phrase bonus."""
     want = list(dict.fromkeys(terms(topic)))
     if not want:
-        return 1.0
+        return (
+            0.0 if topic.strip() else 1.0
+        )  # an empty topic (discover) matches all; filler words none
     title, body = hit.title.lower(), f"{hit.snippet} {hit.author or ''}".lower()
     got = sum(1.0 if t in title else 0.6 if t in body else 0.0 for t in want) / len(want)
     if topic.lower().strip() in title:
@@ -69,7 +75,8 @@ def score_items(items: list[Item], topic: str, since: datetime, until: datetime,
 
     `floor=None` picks a relevance floor from each item's query; pass a number to override.
     """
-    kept = [i for i in items if in_window(i.hit, since, until)]
+    kept = [i for i in items if in_window(i.hit, since, until)
+            and (i.hit.timestamp or not {i.origin, i.source} & NEEDS_DATE)]  # fmt: skip
     for i in kept:
         i.relevance = relevance(i.hit, i.query or topic)
     kept = [i for i in kept

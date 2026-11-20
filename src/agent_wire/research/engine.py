@@ -12,6 +12,7 @@ from itertools import pairwise
 from curl_cffi.requests.exceptions import RequestException
 
 from agent_wire.channels.base import WireUnsupported, relative_ts, ts
+from agent_wire.channels.tier1_global.search import url_key
 from agent_wire.compression.bm25_slicer import rank_comments
 from agent_wire.engine.waterfall import WireFetchError
 from agent_wire.firewall.inbound_shield import shield_comments
@@ -99,6 +100,27 @@ def snippet_date(snippet: str) -> datetime | None:
     return None
 
 
+def _dedupe(items: list[Item]) -> list[Item]:
+    """One item per (source, URL): several queries return the same post; count it once."""
+    best: dict[tuple[str, str], Item] = {}
+    out: list[Item] = []
+    for it in items:
+        it.queries = [it.query]
+        if not it.hit.url:
+            out.append(it)
+            continue
+        key = (it.source, url_key(it.hit.url))
+        if (cur := best.get(key)) is None:
+            best[key] = it
+            out.append(it)
+            continue
+        keep = it if raw_engagement(it.hit) > raw_engagement(cur.hit) else cur
+        keep.queries = list(dict.fromkeys([*cur.queries, *it.queries]))
+        best[key] = keep
+        out[out.index(cur)] = keep
+    return out
+
+
 def _accepts_since(fn) -> bool:
     try:
         return "since" in inspect.signature(fn).parameters
@@ -108,7 +130,7 @@ def _accepts_since(fn) -> bool:
 
 def mentions(item: Item, subjects: list[str]) -> list[str]:
     text = f"{item.hit.title} {item.hit.snippet}".lower()
-    return [s for s in subjects if all(t in text for t in terms(s))]
+    return [s for s in subjects if (t := terms(s)) and all(w in text for w in t)]
 
 
 class Researcher:
@@ -132,11 +154,13 @@ class Researcher:
     async def _lobsters(self, query: str, limit: int) -> list[WireSearchHit]:
         """Lobsters search is bot-walled; its hottest JSON is open, so filter that."""
         data, _ = await self.ctx.channel("hackernews").fetch_json("https://lobste.rs/hottest.json")
+        if not isinstance(data, list):
+            raise TypeError(f"unexpected lobste.rs payload ({type(data).__name__})")
         want = set(terms(query))
         hits = []
-        for s in data:
+        for s in filter(lambda x: isinstance(x, dict), data):
             text = f"{s.get('title', '')} {' '.join(s.get('tags') or [])}".lower()
-            if want and not any(w in text for w in want):
+            if query and not any(w in text for w in want):
                 continue
             hits.append(WireSearchHit(
                 url=s.get("short_id_url") or s.get("comments_url") or "", title=s.get("title") or "",
@@ -152,7 +176,7 @@ class Researcher:
             try:
                 hits = await asyncio.wait_for(self._search(source, q, plan, limit), timeout)
                 return source, q, hits, None
-            except EXPECTED as e:
+            except Exception as e:  # noqa: BLE001  one odd payload must not abort the others
                 return source, q, [], f"{type(e).__name__}: {scrub(str(e))[:160]}"
 
         jobs = [one(s, q) for s in plan.sources for q in plan.queries.get(s) or []]
@@ -171,7 +195,7 @@ class Researcher:
                 items.append(Item(hit=h, query=q, origin=source))
         for s in ok:
             result.gaps.pop(s, None)
-        return items
+        return _dedupe(items)
 
     # ---- modes -------------------------------------------------------------------------------
     async def run(self, topic: str = "", *, days: int = 30, sources=None, mode: str = "auto",
@@ -191,7 +215,7 @@ class Researcher:
             if plan.github_user:
                 await self._person(plan, result)
         if library is not None and plan.topic:
-            result.library = library.related(plan.topic, limit=3)
+            result.library = await library.related_async(plan.topic, limit=3)
         if verify_links:
             await self._verify_links(plan, result)
         result.elapsed_ms = int((time.perf_counter() - t0) * 1000)
@@ -221,7 +245,7 @@ class Researcher:
         out = []
         for subj in plan.subjects:
             pool = [Item(hit=i.hit, query=subj) for i in items
-                    if i.query == subj or mentions(i, [subj])]  # fmt: skip
+                    if i.query == subj or subj in i.queries or mentions(i, [subj])]  # fmt: skip
             mine = score_items(pool, subj, plan.since, plan.until, plan.days)
             eng: Counter = Counter()
             for i in mine:
@@ -256,8 +280,12 @@ class Researcher:
         )
         for (idx, url), r in zip(picks, reads, strict=True):
             if isinstance(r, BaseException):
+                if not isinstance(r, Exception):
+                    raise r  # CancelledError / KeyboardInterrupt
                 if not isinstance(r, EXPECTED):
-                    raise r
+                    result.gaps.setdefault(
+                        "deep-read", f"{type(r).__name__}: {scrub(str(r))[:160]}"
+                    )
                 continue
             doc, _ = r
             if body := " ".join(scrub(doc.body).split()):
@@ -308,6 +336,8 @@ class Researcher:
 
         async def mastodon_trends():
             data, _ = await hn.fetch_json("https://mastodon.social/api/v1/trends/tags?limit=10")
+            if not isinstance(data, list):
+                raise TypeError(f"unexpected mastodon payload ({type(data).__name__})")
             return [WireSearchHit(url=t.get("url") or "", title=f"#{t.get('name')}", source="mastodon",
                                   engagement={"comments": sum(int(d.get("uses", 0))
                                                               for d in t.get("history") or [])})
@@ -330,8 +360,8 @@ class Researcher:
         items = []
         for source, r in zip(names, done, strict=True):
             if isinstance(r, BaseException):
-                if not isinstance(r, EXPECTED):
-                    raise r
+                if not isinstance(r, Exception):
+                    raise r  # CancelledError / KeyboardInterrupt
                 result.gaps[source] = f"{type(r).__name__}: {scrub(str(r))[:160]}"
                 continue
             items += [Item(hit=_aware(h).model_copy(update={"source": source})) for h in r]
