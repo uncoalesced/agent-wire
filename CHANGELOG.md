@@ -2,6 +2,16 @@
 
 All notable changes to agent-wire (`agent-wire-cli` on PyPI, the `agent-wire` Claude plugin).
 
+## Unreleased
+
+### Added
+- **Remote mode.** `wire serve --remote` for hosted clients: anonymous only (no `wire_me`, empty vault, private addresses refused), bearer token or OAuth required off loopback, `Host` and `Origin` checks. The README already described it; the code now exists.
+- **Clients.** `--client kiro` (`.kiro/settings/mcp.json` and a steering file), `--client copilot` (VS Code), `--client copilot-cli`, and connector values for `--client chatgpt`, `gemini-enterprise` and `copilot-enterprise`.
+- **Enterprise controls** (see ENTERPRISE.md): `policy.toml` (domain allow and deny on every request and redirect hop, disabled tools, call and byte budgets, loop stop, kill switch), a signed hash-chained audit log with `wire audit verify|export`, OAuth JWT validation with scopes, and `--autonomous` for unattended agents. Denials carry stable codes (`POLICY_DENIED`, `BUDGET_EXCEEDED`, `LOOP_DETECTED`, `KILLED`, `FORBIDDEN`).
+
+### Fixed
+- CodeQL `py/overly-large-range` in the invisible-character sets: literal members instead of astral ranges.
+
 ## 0.2.5 (2026-11-15)
 
 ### Added
