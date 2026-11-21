@@ -11,11 +11,12 @@ import os
 from collections.abc import Callable
 
 from agent_wire.auth.cookie_vault import CookieVault
+from agent_wire.enterprise.jwt_auth import Principal
 from agent_wire.firewall.ssrf_guard import ALLOW_ENV
 
 TOKEN_ENV = "WIRE_TOKEN"
 MIN_TOKEN_LEN = 16
-Authenticator = Callable[[str], str | None]  # bearer credential -> caller id, or None to refuse
+Authenticator = Callable[[str], Principal | None]  # bearer credential -> caller, None to refuse
 
 
 class RemoteConfigError(ValueError):
@@ -57,10 +58,30 @@ def resolve_token(token: str | None) -> str | None:
 def token_authenticator(token: str) -> Authenticator:
     want = token.encode("utf-8")
 
-    def check(presented: str) -> str | None:
-        return "static-token" if hmac.compare_digest(presented.encode("utf-8"), want) else None
+    def check(presented: str) -> Principal | None:
+        return Principal("static-token") if hmac.compare_digest(presented.encode(), want) else None
 
     return check
+
+
+def build_authenticator(token, issuer=None, audience=None, jwks_uri=None, jwks_file=None):
+    """Static token, OAuth JWT, both (either one is enough), or None for loopback-only use."""
+    static = token_authenticator(secret) if (secret := resolve_token(token)) else None
+    if not (issuer or audience or jwks_uri or jwks_file):
+        return static
+    if not (issuer and audience and bool(jwks_uri) != bool(jwks_file)):
+        raise RemoteConfigError(
+            "OAuth needs --oauth-issuer, --oauth-audience and one of --jwks-uri or --jwks-file"
+        )
+    if jwks_uri and not jwks_uri.lower().startswith("https://"):
+        raise RemoteConfigError("--jwks-uri must be an https URL")
+    from agent_wire.enterprise.jwt_auth import jwt_authenticator
+
+    oauth = jwt_authenticator(issuer=issuer, audience=audience, jwks_uri=jwks_uri,
+                              jwks_file=jwks_file)  # fmt: skip
+    if static is None:
+        return oauth
+    return lambda presented: static(presented) or oauth(presented)
 
 
 def lock_down_environment() -> None:
