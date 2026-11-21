@@ -63,10 +63,39 @@ def serve(
     code_mode: Annotated[
         bool, typer.Option(help="expose only wire_run (scripts) and wire_status")
     ] = False,
+    remote: Annotated[
+        bool, typer.Option(help="anonymous HTTPS-fronted mode for ChatGPT, Gemini Enterprise, Copilot")
+    ] = False,
+    host: Annotated[str, typer.Option(help="bind address (remote mode)")] = "127.0.0.1",
+    token: Annotated[
+        str | None, typer.Option(help="require this bearer token (or set WIRE_TOKEN)")
+    ] = None,
+    allowed_host: Annotated[
+        list[str] | None, typer.Option(help="extra Host header to accept (remote mode)")
+    ] = None,
+    allowed_origin: Annotated[
+        list[str] | None, typer.Option(help="extra Origin to accept (remote mode)")
+    ] = None,
 ) -> None:
     """Run the MCP server (stdio by default)."""
     from agent_wire.server import create_server
 
+    if remote:
+        from agent_wire import remote as rm
+
+        try:
+            secret = rm.resolve_token(token)
+            rm.lock_down_environment()
+            server = create_server(profile, code_mode=code_mode, remote=True)
+            rm.serve_remote(
+                server, host=host, port=port,
+                authenticate=rm.token_authenticator(secret) if secret else None,
+                allowed_hosts=allowed_host, allowed_origins=allowed_origin,
+            )  # fmt: skip
+        except rm.RemoteConfigError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(2) from e
+        return
     server = create_server(profile, code_mode=code_mode)
     if transport == "stdio":
         server.run(show_banner=False)
