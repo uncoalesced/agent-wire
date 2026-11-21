@@ -322,8 +322,8 @@ def _remote(name: str, label: str, extra: str = ""):
         r.notes += [
             f"{label} reaches agent-wire over HTTPS; nothing is written to disk",
             "server URL: https://<your-host>/mcp   transport: streamable HTTP",
-            "start it: uvx agent-wire-cli serve --transport http --remote --port 8765 "
-            "(token from WIRE_TOKEN, at least 16 characters)",
+            "start it (token from WIRE_TOKEN, 16+ characters): "
+            + "uvx agent-wire-cli serve --transport http --remote --port 8765",
             "remote mode is anonymous only: no wire_me, no vault, no private addresses",
             "never expose it publicly without authentication: set a token or put OAuth in front",
         ]
