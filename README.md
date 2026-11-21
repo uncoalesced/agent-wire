@@ -291,6 +291,62 @@ This writes `.peridot/mcp.json` in the project (or in your home folder with `--g
 </details>
 
 <details>
+<summary><b>Kiro</b></summary>
+
+```bash
+uvx agent-wire-cli install --client kiro
+```
+
+This merges `agent_wire` into `.kiro/settings/mcp.json` in the project and writes a steering file at `.kiro/steering/agent-wire.md` that tells Kiro when to use the tools. With `--global` it writes `~/.kiro/settings/mcp.json` and `~/.kiro/steering/agent-wire.md`. Nothing is added to `autoApprove`, so Kiro asks before each call until you trust the tools yourself.
+
+</details>
+
+<details>
+<summary><b>GitHub Copilot (VS Code)</b></summary>
+
+```bash
+uvx agent-wire-cli install --client copilot
+```
+
+This writes `.vscode/mcp.json` (the file Copilot in VS Code reads) and `.github/instructions/agent-wire.instructions.md`, a path-scoped instructions file, so your own `.github/copilot-instructions.md` is never touched. Open Copilot Chat in agent mode and enable `agent_wire` in the tools picker. Your organization's Copilot policy must allow MCP servers.
+
+</details>
+
+<details>
+<summary><b>GitHub Copilot CLI</b></summary>
+
+```bash
+uvx agent-wire-cli install --client copilot-cli
+```
+
+This merges a `local` server with `tools: ["*"]` into `~/.copilot/mcp-config.json`. Restart Copilot CLI and run `/mcp` to see `agent_wire`.
+
+</details>
+
+<details>
+<summary><b>Microsoft 365 Copilot and Copilot Studio</b></summary>
+
+Microsoft's hosted Copilot cannot start a local process, so it reaches agent-wire over HTTPS in remote mode, with the same limits as the ChatGPT route: anonymous only, no `wire_me`, no vault, no private addresses.
+
+```bash
+uvx agent-wire-cli install --client copilot-enterprise
+```
+
+This writes no files; it prints the connector values. Start the server behind your HTTPS endpoint and require a credential, either a static token or OAuth tokens from your tenant's identity provider (Microsoft Entra ID works: give its issuer, your app's audience and its JWKS URL):
+
+```bash
+WIRE_TOKEN=<16+ characters> uvx agent-wire-cli serve --transport http --remote --port 8765
+```
+
+```bash
+uvx agent-wire-cli serve --transport http --remote --oauth-issuer https://login.microsoftonline.com/<tenant>/v2.0 --oauth-audience <app id> --jwks-uri https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys
+```
+
+Then add it in Copilot Studio as an MCP connector (streamable HTTP, URL ending in `/mcp`). Your tenant's admin decides who may use it. For allow-lists, call budgets and an audit trail, see [ENTERPRISE.md](ENTERPRISE.md).
+
+</details>
+
+<details>
 <summary><b>Any other MCP client</b></summary>
 
 Most clients take the same `mcpServers` shape. Add this to the client's config:
@@ -310,11 +366,11 @@ For small local models (Ollama, LM Studio, 8 GB GPUs) add `"--profile", "local"`
 uvx agent-wire-cli serve --transport http --port 8765
 ```
 
-Point the client at `http://127.0.0.1:8765/mcp`. This serves the full tool set, including `wire_me`, so keep it on localhost. To expose it beyond your machine, use `--remote` as in the ChatGPT section.
+Point the client at `http://127.0.0.1:8765/mcp`. This serves the full tool set, including `wire_me`, so keep it on localhost. To expose it beyond your machine, use `--remote` as in the ChatGPT section; remote mode refuses a non-loopback address unless a token or OAuth is set. Running it for a team? See [ENTERPRISE.md](ENTERPRISE.md).
 
 </details>
 
-`--client all` installs into every file-based client above. It skips `chatgpt` and `gemini-enterprise`, which only print connector values. By default the installer writes into the current project. `--project PATH` targets another repo and `--global` installs for your user account.
+`--client all` installs into every file-based client above. It skips `chatgpt`, `gemini-enterprise` and `copilot-enterprise`, which only print connector values. By default the installer writes into the current project. `--project PATH` targets another repo and `--global` installs for your user account.
 
 For the latest commit instead of the latest release:
 
@@ -658,7 +714,7 @@ A lot of recent malware has arrived through package registries: a hijacked npm p
 - **No install scripts.** Every package in the lockfile ships prebuilt wheels, and installing a wheel unpacks files without running any of its code. Only the optional extras fetch more later, and only when you ask: `stealth` needs `playwright install chromium`, and `local-whisper` downloads a speech model on first use.
 - **Small direct list.** 13 direct dependencies, all long-standing projects. The youngest is `quickjs-ng`, the Code Mode sandbox engine, first released in February 2026. With everything they pull in, that is 94 packages, or 117 with every optional extra.
 - **Pinned and hashed.** `uv.lock` pins every package to one version with sha256 hashes, and CI installs from it. `pip install` and `uvx` resolve fresh versions within the ranges in `pyproject.toml`, so if you want our exact set, install from a checkout with `uv sync --locked`.
-- **Scanned.** `pip-audit` over the full locked set (runtime plus every extra) found one advisory: CVE-2026-119284 in `joserfc`, pulled in through `fastmcp`. agent-wire never parses the JSON web tokens it concerns, and the lock now uses the fixed version, so there are no known vulnerabilities. Bandit found nothing at medium severity or above, and zizmor finds nothing in the workflows. CodeQL flagged seven host checks that matched by substring (so `evilnpmjs.com` counted as npm); those now match the exact host or its subdomains. Cookies were never at risk, because the vault picks them by the real request host.
+- **Scanned.** `pip-audit` over the full locked set (runtime plus every extra) found one advisory: CVE-2026-119284 in `joserfc`, pulled in through `fastmcp`. `wire serve --remote --oauth-*` does validate JWTs, through `joserfc` 1.8.0 or later (the fixed versions) with an algorithm allow-list and a size cap, and the lock uses the fixed version, so there are no known vulnerabilities. Bandit found nothing at medium severity or above, and zizmor finds nothing in the workflows. CodeQL flagged seven host checks that matched by substring (so `evilnpmjs.com` counted as npm); those now match the exact host or its subdomains. Cookies were never at risk, because the vault picks them by the real request host.
 - **Routine upgrades wait.** Dependabot holds routine dependency and Actions upgrades for 7 days after a release, so a hijacked version usually gets yanked before we take it. Security fixes still arrive straight away.
 - **Releases you can check.** Releases are built and uploaded by GitHub Actions through PyPI Trusted Publishing, so no upload token exists to steal. Each file on PyPI carries a signed attestation that ties it to `release.yml` in this repository. Actions are pinned to commit SHAs, and every pull request runs `pip-audit`, bandit, zizmor, dependency review and CodeQL.
 
