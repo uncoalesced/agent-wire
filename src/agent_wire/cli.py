@@ -64,7 +64,8 @@ def serve(
         bool, typer.Option(help="expose only wire_run (scripts) and wire_status")
     ] = False,
     remote: Annotated[
-        bool, typer.Option(help="anonymous HTTPS-fronted mode for ChatGPT, Gemini Enterprise, Copilot")
+        bool,
+        typer.Option(help="anonymous HTTPS-fronted mode for ChatGPT, Gemini Enterprise, Copilot"),
     ] = False,
     host: Annotated[str, typer.Option(help="bind address (remote mode)")] = "127.0.0.1",
     token: Annotated[
@@ -76,27 +77,43 @@ def serve(
     allowed_origin: Annotated[
         list[str] | None, typer.Option(help="extra Origin to accept (remote mode)")
     ] = None,
+    oauth_issuer: Annotated[
+        str | None, typer.Option(help="validate OAuth JWTs from this issuer")
+    ] = None,
+    oauth_audience: Annotated[str | None, typer.Option(help="required `aud` of the JWT")] = None,
+    jwks_uri: Annotated[str | None, typer.Option(help="https URL of the issuer's JWKS")] = None,
+    jwks_file: Annotated[Path | None, typer.Option(help="local JWKS file instead of a URI")] = None,
+    autonomous: Annotated[
+        bool,
+        typer.Option(
+            help="hard call/byte budgets, loop stop and an audit log, for unattended agents"
+        ),
+    ] = False,
 ) -> None:
     """Run the MCP server (stdio by default)."""
+    from agent_wire.enterprise.policy import PolicyError
     from agent_wire.server import create_server
 
     if remote:
         from agent_wire import remote as rm
 
         try:
-            secret = rm.resolve_token(token)
+            authenticate = rm.build_authenticator(
+                token, oauth_issuer, oauth_audience, jwks_uri, jwks_file
+            )
             rm.lock_down_environment()
-            server = create_server(profile, code_mode=code_mode, remote=True)
-            rm.serve_remote(
-                server, host=host, port=port,
-                authenticate=rm.token_authenticator(secret) if secret else None,
-                allowed_hosts=allowed_host, allowed_origins=allowed_origin,
-            )  # fmt: skip
-        except rm.RemoteConfigError as e:
+            server = create_server(profile, code_mode=code_mode, remote=True, autonomous=autonomous)
+            rm.serve_remote(server, host=host, port=port, authenticate=authenticate,
+                            allowed_hosts=allowed_host, allowed_origins=allowed_origin)  # fmt: skip
+        except (rm.RemoteConfigError, PolicyError) as e:
             typer.echo(f"error: {e}", err=True)
             raise typer.Exit(2) from e
         return
-    server = create_server(profile, code_mode=code_mode)
+    try:
+        server = create_server(profile, code_mode=code_mode, autonomous=autonomous)
+    except PolicyError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2) from e
     if transport == "stdio":
         server.run(show_banner=False)
     else:
@@ -194,6 +211,48 @@ def install(
             typer.echo(f"  FAILED: {r.error}", err=True)
     if any(r.error for r in results):
         raise typer.Exit(2)
+
+
+audit_app = typer.Typer(no_args_is_help=True, help="The signed audit log of tool calls.")
+app.add_typer(audit_app, name="audit")
+
+
+@audit_app.command("verify")
+def audit_verify(
+    log: Annotated[Path | None, typer.Option(help="audit.jsonl to check")] = None,
+    public_key: Annotated[str | None, typer.Option(help="hex key, or a file holding it")] = None,
+) -> None:
+    """Check the audit log's chain and signatures. Exit 1 if anything was altered."""
+    from agent_wire.config import resolve_wire_home
+    from agent_wire.enterprise.audit import verify
+
+    home = resolve_wire_home()
+    path = log or home / "audit.jsonl"
+    key = public_key or str(home / "audit.pub")
+    if Path(key).is_file():
+        key = Path(key).read_text(encoding="ascii")
+    if not path.exists():
+        typer.echo(f"no audit log at {path}", err=True)
+        raise typer.Exit(2)
+    checked, problem = verify(path, key)
+    if problem:
+        typer.echo(f"TAMPERED after {checked} good lines: {problem}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"ok: {checked} lines, chain and signatures intact")
+
+
+@audit_app.command("export")
+def audit_export(
+    log: Annotated[Path | None, typer.Option(help="audit.jsonl to print")] = None,
+) -> None:
+    """Print the audit log (JSON lines) for a SIEM or an auditor."""
+    from agent_wire.config import resolve_wire_home
+
+    path = log or resolve_wire_home() / "audit.jsonl"
+    if not path.exists():
+        typer.echo(f"no audit log at {path}", err=True)
+        raise typer.Exit(2)
+    sys.stdout.write(path.read_text(encoding="utf-8"))
 
 
 @app.command()
