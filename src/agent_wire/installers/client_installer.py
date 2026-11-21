@@ -21,7 +21,9 @@ from agent_wire import __version__
 
 SERVER = "agent_wire"
 CLIENTS = ("claude-code", "codex", "hermes", "antigravity", "claude-desktop", "peridot", "cursor",
-           "windsurf", "vscode", "roo", "gemini")  # fmt: skip
+           "windsurf", "vscode", "roo", "gemini", "kiro", "copilot", "copilot-cli")  # fmt: skip
+# Hosted connectors write no files: they print the values for the vendor's admin console.
+REMOTE_CLIENTS = ("chatgpt", "gemini-enterprise", "copilot-enterprise")
 ASSETS = {
     "SKILL.md": "skills/agent-wire/SKILL.md",
     "wire-worker.md": "agents/wire-worker.md",
@@ -287,10 +289,62 @@ def _gemini(t: Target, r: Result) -> None:
     _write(base / "GEMINI.md", _body(asset("SKILL.md")), t, r)
 
 
+def _rules() -> str:
+    return _body(asset("windsurf_rules.md"))  # the same always-on usage rules, no front matter
+
+
+def _kiro(t: Target, r: Result) -> None:
+    base = (t.home if t.global_ else t.project) / ".kiro"
+    entry = server_entry(t.profile, base / ".wire")
+    _merge_json(base / "settings" / "mcp.json", "mcpServers", entry, t, r)
+    _write(base / "steering" / "agent-wire.md", "---\ninclusion: always\n---\n\n" + _rules(), t, r)
+    r.notes.append("tools are not auto-approved: Kiro asks before each call until you trust them")
+
+
+def _copilot(t: Target, r: Result) -> None:
+    """GitHub Copilot in VS Code: the MCP config is VS Code's, the rules are Copilot's."""
+    _vscode(t, r)
+    # A path-scoped instructions file, so a project's own copilot-instructions.md is never touched.
+    text = '---\napplyTo: "**"\n---\n\n' + _rules()
+    _write(t.project / ".github" / "instructions" / "agent-wire.instructions.md", text, t, r)
+    r.notes.append("use Copilot Chat in agent mode; enable agent_wire in the tools picker")
+
+
+def _copilot_cli(t: Target, r: Result) -> None:
+    base = t.home / ".copilot"
+    entry = {"type": "local", **server_entry(t.profile, base / ".wire"), "tools": ["*"]}
+    _merge_json(base / "mcp-config.json", "mcpServers", entry, t, r)
+    r.notes.append("restart Copilot CLI and run /mcp to see agent_wire")
+
+
+def _remote(name: str, label: str, extra: str = ""):
+    def write(t: Target, r: Result) -> None:
+        r.notes += [
+            f"{label} reaches agent-wire over HTTPS; nothing is written to disk",
+            "server URL: https://<your-host>/mcp   transport: streamable HTTP",
+            "start it: uvx agent-wire-cli serve --transport http --remote --port 8765 "
+            "(token from WIRE_TOKEN, at least 16 characters)",
+            "remote mode is anonymous only: no wire_me, no vault, no private addresses",
+            "never expose it publicly without authentication: set a token or put OAuth in front",
+        ]
+        if extra:
+            r.notes.append(extra)
+
+    write.__name__ = f"_{name}"
+    return write
+
+
 WRITERS = {
     "claude-code": _claude_code, "codex": _codex, "hermes": _hermes, "antigravity": _antigravity,
     "claude-desktop": _claude_desktop, "peridot": _peridot, "cursor": _cursor,
-    "windsurf": _windsurf, "vscode": _vscode, "roo": _roo, "gemini": _gemini,
+    "windsurf": _windsurf, "vscode": _vscode, "roo": _roo, "gemini": _gemini, "kiro": _kiro,
+    "copilot": _copilot, "copilot-cli": _copilot_cli,
+    "chatgpt": _remote("chatgpt", "ChatGPT"),
+    "gemini-enterprise": _remote("gemini-enterprise", "Gemini Enterprise",
+                                 "Gemini Enterprise needs OAuth 2.0 and a publicly trusted certificate"),
+    "copilot-enterprise": _remote("copilot-enterprise", "Microsoft 365 Copilot / Copilot Studio",
+                                  "add it in Copilot Studio as an MCP connector (streamable HTTP, "
+                                  "bearer or OAuth); your tenant's admin controls who can use it"),
 }  # fmt: skip
 
 
@@ -307,6 +361,9 @@ def detect(project: Path, home: Path) -> list[str]:
         "vscode": [project / ".vscode"],
         "roo": [project / ".roo"],
         "gemini": [home / ".gemini" / "extensions"],
+        "kiro": [project / ".kiro", home / ".kiro"],
+        "copilot": [project / ".github" / "copilot-instructions.md"],
+        "copilot-cli": [home / ".copilot"],
     }
     return [c for c, paths in markers.items() if any(p.exists() for p in paths)] or ["claude-code"]
 
@@ -321,7 +378,8 @@ def install(client: str, *, project: Path, home: Path, profile: str = "standard"
         names = [client]
     else:
         raise ValueError(
-            f"unknown client {client!r}; choose auto, all, or one of: {', '.join(CLIENTS)}"
+            f"unknown client {client!r}; choose auto, all, or one of: "
+            f"{', '.join(CLIENTS + REMOTE_CLIENTS)}"
         )
     target = Target(project, home, profile, global_, dry_run)
     results = []
