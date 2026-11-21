@@ -51,8 +51,14 @@ def test_requests_without_the_token_get_401(server, header):
 
 def test_the_token_reaches_the_server(server):
     with TestClient(_app(server, rm.token_authenticator(TOKEN))) as c:
-        r = c.post("/mcp", headers={"authorization": f"Bearer {TOKEN}",
-                                    "accept": "application/json, text/event-stream"}, json={})
+        r = c.post(
+            "/mcp",
+            headers={
+                "authorization": f"Bearer {TOKEN}",
+                "accept": "application/json, text/event-stream",
+            },
+            json={},
+        )
     assert r.status_code != 401
 
 

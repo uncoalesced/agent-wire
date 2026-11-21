@@ -42,7 +42,9 @@ def test_kiro_project_and_global(dirs):
     steer = (project / ".kiro/steering/agent-wire.md").read_text(encoding="utf-8")
     assert steer.startswith("---\ninclusion: always\n---") and "wire_read" in steer
     install("kiro", dirs, global_=True)
-    assert entry_of(home / ".kiro/settings/mcp.json")["env"]["WIRE_HOME"] == str(home / ".kiro/.wire")
+    assert entry_of(home / ".kiro/settings/mcp.json")["env"]["WIRE_HOME"] == str(
+        home / ".kiro/.wire"
+    )
 
 
 def test_kiro_merges_and_is_idempotent(dirs):
@@ -65,7 +67,9 @@ def test_copilot_vscode_never_touches_existing_instructions(dirs):
     install("copilot", dirs)
     assert own.read_text() == "mine"
     assert entry_of(project / ".vscode/mcp.json", "servers")["type"] == "stdio"
-    rules = (project / ".github/instructions/agent-wire.instructions.md").read_text(encoding="utf-8")
+    rules = (project / ".github/instructions/agent-wire.instructions.md").read_text(
+        encoding="utf-8"
+    )
     assert rules.startswith('---\napplyTo: "**"\n---') and "wire_read" in rules
 
 
