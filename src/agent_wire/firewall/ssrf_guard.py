@@ -85,6 +85,14 @@ def _private(url: str, ip: IP | None = None) -> WireBlockedError:
     )
 
 
+_url_policy = None  # an operator's allow/deny gate (enterprise.governor), run on every checked URL
+
+
+def set_url_policy(gate) -> None:
+    global _url_policy
+    _url_policy = gate
+
+
 def check_url(url: str) -> None:
     """Raise WireBlockedError for a non-http(s) URL or a host that is plainly private. No DNS."""
     try:
@@ -98,6 +106,8 @@ def check_url(url: str) -> None:
     host = parts.hostname
     if not host or _BAD_NETLOC.intersection(parts.netloc):
         raise WireBlockedError(f"{url}: blocked: malformed URL")
+    if _url_policy is not None:
+        _url_policy(url)
     if private_allowed():
         return
     name = decode_host(host).lower().rstrip(".")
