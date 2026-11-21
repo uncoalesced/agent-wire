@@ -75,7 +75,9 @@ def _shielded(tool: str):
                 gov.done(tool, caller, call, "error", int((time.perf_counter() - t0) * 1000))
                 raise
             size = len(out.encode()) if isinstance(out, str) else 0
-            gov.done(tool, caller, call, "allowed", int((time.perf_counter() - t0) * 1000), size)
+            failed = isinstance(out, str) and out.startswith("[WIRE | error")
+            gov.done(tool, caller, call, "error" if failed else "allowed",
+                     int((time.perf_counter() - t0) * 1000), size)  # fmt: skip
             return out
 
         @wraps(fn)
