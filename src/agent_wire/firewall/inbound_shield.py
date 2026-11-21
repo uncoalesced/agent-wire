@@ -139,8 +139,10 @@ class _Sheet:
 _NO_SHEET = _Sheet()
 _STYLE_TAG = re.compile(r"<style", re.IGNORECASE)
 
-_TAG_CHARS = re.compile("[\U000e0000-\U000e007f]+")
-_ASTRAL_INVISIBLE = re.compile("[\U000e0000-\U000e007f\U000e0100-\U000e01ef]")  # tags, VS17-256
+_TAG_SET = frozenset(chr(cp) for cp in range(0xE0000, 0xE0080))
+# Literal members, no `a-b` ranges: CodeQL misreads astral ranges as overlapping U+FFFD.
+_TAG_CHARS = re.compile("[" + "".join(sorted(_TAG_SET)) + "]+")
+_ASTRAL_INVISIBLE = frozenset(_TAG_SET | {chr(cp) for cp in range(0xE0100, 0xE01F0)})  # + VS17-256
 _BMP_INVISIBLE = tuple(chr(cp) for cp in (0xAD, 0x180E, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF,
                                           *range(0xFE00, 0xFE10), *range(0x202A, 0x202F),
                                           *range(0x2066, 0x206A)))  # fmt: skip
@@ -162,7 +164,7 @@ def _has_invisible(text: str) -> bool:
     # CPython stores a string with any astral character as UCS-4; getsizeof tells us in O(1).
     return (
         sys.getsizeof(text) >= _UCS4_FLOOR * len(text)
-        and _ASTRAL_INVISIBLE.search(text) is not None
+        and not _ASTRAL_INVISIBLE.isdisjoint(text)
     )
 
 
