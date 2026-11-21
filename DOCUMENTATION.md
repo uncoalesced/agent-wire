@@ -97,7 +97,7 @@ Write `[[UNSOURCED]]` after a claim with no source, and run `wire_cite` on an an
 
 ## Transports
 
-`wire serve` uses stdio. `--transport http` or `sse` binds to `127.0.0.1` only and has no authentication; don't expose it to other machines.
+`wire serve` uses stdio. `--transport http` or `sse` binds to `127.0.0.1` only and has no authentication; don't expose it to other machines. To serve other machines or hosted clients use `--remote` with a token or OAuth, and see [ENTERPRISE.md](ENTERPRISE.md).
 
 ## Self-test
 
