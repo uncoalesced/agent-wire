@@ -20,7 +20,7 @@ from joserfc.errors import JoseError
 from joserfc.jwk import KeySet
 
 ALGORITHMS = ("RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "EdDSA")
-CACHE_S, REFRESH_GAP_S, MAX_JWKS_BYTES = 300, 60, 1_000_000
+CACHE_S, REFRESH_GAP_S, MAX_JWKS_BYTES, MAX_TOKEN_CHARS = 300, 60, 1_000_000, 16_384
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,7 @@ def jwt_authenticator(*, issuer: str, audience: str, jwks_uri: str | None = None
     )  # fmt: skip
 
     def authenticate(presented: str) -> Principal | None:
-        if presented.count(".") != 2:  # not a compact JWS: never reach the parser
+        if presented.count(".") != 2 or len(presented) > MAX_TOKEN_CHARS:  # not a compact JWS
             return None
         for force in (False, True):  # a second pass picks up a rotated key
             keyset = keys.get(force)
