@@ -162,10 +162,7 @@ def _has_invisible(text: str) -> bool:
     if any(c in text for c in _BMP_INVISIBLE):  # C-speed substring scans
         return True
     # CPython stores a string with any astral character as UCS-4; getsizeof tells us in O(1).
-    return (
-        sys.getsizeof(text) >= _UCS4_FLOOR * len(text)
-        and not _ASTRAL_INVISIBLE.isdisjoint(text)
-    )
+    return sys.getsizeof(text) >= _UCS4_FLOOR * len(text) and not _ASTRAL_INVISIBLE.isdisjoint(text)
 
 
 def strip_invisible_unicode(text: str) -> str:
