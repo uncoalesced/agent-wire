@@ -4,8 +4,18 @@ import os
 import sys
 from pathlib import Path
 
-CLIENT_DIRS = (".claude", ".codex", ".hermes", ".agent", ".cursor", ".windsurf", ".roo", ".gemini", ".kiro",
-               ".copilot")
+CLIENT_DIRS = (
+    ".claude",
+    ".codex",
+    ".hermes",
+    ".agent",
+    ".cursor",
+    ".windsurf",
+    ".roo",
+    ".gemini",
+    ".kiro",
+    ".copilot",
+)
 
 # Everything in WIRE_HOME (vault.enc, cache.db, venvs) stays out of git except config.
 WIRE_GITIGNORE = "*\n!.gitignore\n!config.toml\n"
