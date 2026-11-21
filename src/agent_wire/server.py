@@ -34,6 +34,7 @@ from agent_wire.firewall.inbound_shield import shield_comments, spotlight
 from agent_wire.firewall.outbound_privacy import WirePrivacyBlockError, scrub
 from agent_wire.firewall.ssrf_guard import check_url
 from agent_wire.models import WireComment, WireDocument, WireSearchHit, WireTelemetry
+from agent_wire.remote import AnonymousVault
 from agent_wire.router import ALL_PLATFORMS, route_platform, route_url
 from agent_wire.shield import Shield
 from agent_wire.shield import events as shield_events
@@ -92,12 +93,13 @@ def _only(comments: list[WireComment], wanted: set[str]) -> list[WireComment]:
 
 
 class Wire:
-    def __init__(self, profile: str = "standard", home: Path | None = None):
+    def __init__(self, profile: str = "standard", home: Path | None = None, remote: bool = False):
         self.profile_name = profile
         self.profile = get_profile(profile)
+        self.remote = remote
         self.home = init_wire_home(home)
         self.ledger = Ledger(self.home / "cache.db")
-        self.vault = CookieVault(self.home)
+        self.vault = AnonymousVault(self.home) if remote else CookieVault(self.home)
         self.pool = HttpPool()
         self.browser = StealthBrowser(self.home)
         self.waterfall = Waterfall(self.pool, self.ledger, self.vault, RateLimiter(), self.browser)
@@ -643,9 +645,9 @@ CODE_MODE_INSTRUCTIONS = (
 
 def create_server(
     profile: str = "standard", home: Path | None = None, wire: Wire | None = None,
-    code_mode: bool = False,
+    code_mode: bool = False, remote: bool = False,
 ) -> FastMCP:  # fmt: skip
-    wire = wire or Wire(profile, home)
+    wire = wire or Wire(profile, home, remote=remote)
     p, d = wire.profile, DESCRIPTIONS[profile]
     instructions = CODE_MODE_INSTRUCTIONS if code_mode else INSTRUCTIONS
     mcp = FastMCP("agent_wire", instructions=instructions if profile == "standard" else None,
@@ -721,20 +723,22 @@ def create_server(
                         max_tokens: int = 2000) -> str:  # fmt: skip
         return await wire.feed(platform, target, sort, limit, max_tokens)
 
-    @mcp.tool(
-        name="wire_me",
-        title="Read my own account",
-        description=d["wire_me"],
-        annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
-    )
-    async def wire_me(platform: str, target: str = "latest_posts", limit: int = 5,
-                      max_tokens: int = 1500) -> str:  # fmt: skip
-        return await wire.me(platform, target, limit, max_tokens)
+    if not remote:  # an account read needs a saved session; remote mode is anonymous only
+
+        @mcp.tool(
+            name="wire_me",
+            title="Read my own account",
+            description=d["wire_me"],
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
+        )
+        async def wire_me(platform: str, target: str = "latest_posts", limit: int = 5,
+                          max_tokens: int = 1500) -> str:  # fmt: skip
+            return await wire.me(platform, target, limit, max_tokens)
 
     _status_tool(mcp, wire, d)
 
