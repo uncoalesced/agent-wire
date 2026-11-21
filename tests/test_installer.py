@@ -27,11 +27,70 @@ def entry_of(path, section="mcpServers"):
     return json.loads(path.read_text(encoding="utf-8"))[section]["agent_wire"]
 
 
-def test_all_eleven_clients_install(dirs):
+def test_all_file_based_clients_install(dirs):
     results = install("all", dirs)
-    assert [r.client for r in results] == list(ci.CLIENTS) and len(ci.CLIENTS) == 11
+    assert [r.client for r in results] == list(ci.CLIENTS) and len(ci.CLIENTS) == 14
     for r in results:
         assert r.files and all(f.exists() for f in r.files), r.client
+
+
+def test_kiro_project_and_global(dirs):
+    project, home = dirs
+    install("kiro", dirs)
+    e = entry_of(project / ".kiro/settings/mcp.json")
+    assert e["env"]["WIRE_HOME"] == str(project / ".kiro" / ".wire") and "autoApprove" not in e
+    steer = (project / ".kiro/steering/agent-wire.md").read_text(encoding="utf-8")
+    assert steer.startswith("---\ninclusion: always\n---") and "wire_read" in steer
+    install("kiro", dirs, global_=True)
+    assert entry_of(home / ".kiro/settings/mcp.json")["env"]["WIRE_HOME"] == str(home / ".kiro/.wire")
+
+
+def test_kiro_merges_and_is_idempotent(dirs):
+    project, _ = dirs
+    cfg = project / ".kiro/settings/mcp.json"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(json.dumps({"mcpServers": {"other": {"command": "x", "disabled": True}}}))
+    install("kiro", dirs)
+    first = cfg.read_text()
+    install("kiro", dirs)
+    data = json.loads(cfg.read_text())
+    assert cfg.read_text() == first and data["mcpServers"]["other"]["disabled"] is True
+
+
+def test_copilot_vscode_never_touches_existing_instructions(dirs):
+    project, _ = dirs
+    own = project / ".github" / "copilot-instructions.md"
+    own.parent.mkdir(parents=True)
+    own.write_text("mine")
+    install("copilot", dirs)
+    assert own.read_text() == "mine"
+    assert entry_of(project / ".vscode/mcp.json", "servers")["type"] == "stdio"
+    rules = (project / ".github/instructions/agent-wire.instructions.md").read_text(encoding="utf-8")
+    assert rules.startswith('---\napplyTo: "**"\n---') and "wire_read" in rules
+
+
+def test_copilot_cli(dirs):
+    _, home = dirs
+    install("copilot-cli", dirs)
+    e = entry_of(home / ".copilot/mcp-config.json")
+    assert e["type"] == "local" and e["tools"] == ["*"] and e["args"][-1] == "serve"
+
+
+@pytest.mark.parametrize("name", ci.REMOTE_CLIENTS)
+def test_remote_clients_write_nothing_and_say_how(dirs, name):
+    project, home = dirs
+    (r,) = install(name, dirs)
+    assert not r.files and any("streamable HTTP" in n for n in r.notes)
+    assert not any(project.iterdir()) and not any(home.iterdir())
+    assert name not in ci.CLIENTS
+
+
+def test_detect_kiro_and_unknown_client_lists_remote_names(dirs):
+    project, home = dirs
+    (home / ".kiro").mkdir()
+    assert "kiro" in ci.detect(project, home)
+    with pytest.raises(ValueError, match="copilot-enterprise"):
+        install("nope", dirs)
 
 
 def test_claude_code_project(dirs):
