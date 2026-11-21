@@ -321,7 +321,7 @@ def test_alg_none_hmac_confusion_and_wrong_key_are_refused(rsa, tmp_path):
     assert auth(signing + "." + base64.urlsafe_b64encode(mac).rstrip(b"=").decode()) is None
     attacker = RSAKey.generate_key(2048, parameters={"kid": "k1"})
     assert auth(token(attacker)) is None
-    for junk in ("", "a.b", "a.b.c", "a.b.c.d", "Bearer x"):
+    for junk in ("", "a.b", "a.b.c", "a.b.c.d", "Bearer x", "a." + "b" * 20_000 + ".c"):
         assert auth(junk) is None
 
 
